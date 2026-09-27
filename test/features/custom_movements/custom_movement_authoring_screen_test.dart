@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:elixr_application/core/theme/app_theme.dart';
 import 'package:elixr_application/core/widgets/elix_primary_button.dart';
@@ -13,11 +12,13 @@ import 'package:elixr_application/data/models/training_prop.dart';
 import 'package:elixr_application/data/models/ws_protocol.dart';
 import 'package:elixr_application/data/repositories/custom_movement_repository.dart';
 import 'package:elixr_application/features/custom_movements/custom_movement_authoring_screen.dart';
+import 'package:elixr_application/features/custom_movements/widgets/authoring_wizard_widgets.dart';
 import 'package:elixr_application/features/settings/widgets/camera_source_preference.dart';
 import 'package:elixr_application/services/camera_device_service.dart';
 import 'package:elixr_application/services/settings_service.dart';
 import 'package:elixr_application/services/websocket_service.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
@@ -134,8 +135,11 @@ class _Socket extends Fake implements WebSocketService {
   final List<(String, int, int)> trimRanges = [];
   final Map<String, (int, int)> committedTrims = {};
   bool rejectNextTrim = false;
+  bool rejectNextPrepare = false;
+  bool rejectNextStartCapture = false;
   String? rejectBuildCode;
   String? rejectBuildMessage;
+  String? builtBehavior;
   int buildCalls = 0;
   bool rejectNextReference = false;
   bool failDisconnect = false;
@@ -170,6 +174,15 @@ class _Socket extends Fake implements WebSocketService {
     trimEndMs: end,
     movementTemplate: template,
     referenceQuality: quality,
+  );
+
+  CommandAck _rejected(String action, String code) => CommandAck(
+    protocolVersion: 1,
+    requestId: 'request-$action',
+    sessionId: 'session-1',
+    action: action,
+    accepted: false,
+    errorCode: code,
   );
 
   void ready({
@@ -227,6 +240,12 @@ class _Socket extends Fake implements WebSocketService {
       preparedReadiness =
           invocation.namedArguments[#readinessSpec]
               as TeacherActivityReadinessSpec?;
+      if (rejectNextPrepare) {
+        rejectNextPrepare = false;
+        return Future<CommandAck>.value(
+          _rejected('prepare', 'camera_unavailable'),
+        );
+      }
       return Future<CommandAck>.value(_ack('prepare'));
     }
     if (method == #stopPracticeSession) {
@@ -237,6 +256,12 @@ class _Socket extends Fake implements WebSocketService {
       startCustomCaptureCalls++;
       lastCaptureDurationSeconds =
           invocation.namedArguments[#durationSeconds] as int?;
+      if (rejectNextStartCapture) {
+        rejectNextStartCapture = false;
+        return Future<CommandAck>.value(
+          _rejected('start_custom_capture', 'readiness_not_stable'),
+        );
+      }
       return Future<CommandAck>.value(_ack('$method'));
     }
     if (method == #sendBeginReadiness ||
@@ -266,14 +291,7 @@ class _Socket extends Fake implements WebSocketService {
       if (rejectNextReference) {
         rejectNextReference = false;
         return Future<CommandAck>.value(
-          CommandAck(
-            protocolVersion: 1,
-            requestId: 'request-stop_custom_capture',
-            sessionId: 'session-1',
-            action: 'stop_custom_capture',
-            accepted: false,
-            errorCode: 'multiple_people_detected',
-          ),
+          _rejected('stop_custom_capture', 'multiple_people_detected'),
         );
       }
       count++;
@@ -308,14 +326,7 @@ class _Socket extends Fake implements WebSocketService {
       if (rejectNextTrim) {
         rejectNextTrim = false;
         return Future<CommandAck>.value(
-          CommandAck(
-            protocolVersion: 1,
-            requestId: 'request-trim_custom_reference',
-            sessionId: 'session-1',
-            action: 'trim_custom_reference',
-            accepted: false,
-            errorCode: 'insufficient_frames',
-          ),
+          _rejected('trim_custom_reference', 'insufficient_frames'),
         );
       }
       committedTrims[id] = (start, end);
@@ -325,6 +336,7 @@ class _Socket extends Fake implements WebSocketService {
     }
     if (method == #sendBuildCustomTemplate) {
       buildCalls++;
+      builtBehavior = invocation.namedArguments[#movementBehavior] as String?;
       commandOrder.add('build');
       if (rejectBuildCode case final code?) {
         return Future<CommandAck>.value(
@@ -385,11 +397,14 @@ Widget _host({
   CustomMovementOwnerRole role = CustomMovementOwnerRole.trainee,
   _Settings? settingsOverride,
   FluentThemeData? theme,
+  List<Uri>? cameraRequests,
 }) {
   final settings = settingsOverride ?? _Settings();
   final cameras = CameraDeviceService(
-    httpGet: (_) async =>
-        '{"cameras":[{"device_id":"dev-a","display_name":"Camera A","runtime_index":0,"is_active":false,"identity_stable":true},{"device_id":"dev-b","display_name":"Camera B","runtime_index":1,"is_active":false,"identity_stable":true}]}',
+    httpGet: (uri) async {
+      cameraRequests?.add(uri);
+      return '{"cameras":[{"device_id":"dev-a","display_name":"Camera A","runtime_index":0,"is_active":false,"identity_stable":true},{"device_id":"dev-b","display_name":"Camera B","runtime_index":1,"is_active":false,"identity_stable":true}]}';
+    },
   );
   return MultiProvider(
     providers: [
@@ -410,9 +425,34 @@ Widget _host({
   );
 }
 
+void _useViewport(WidgetTester tester, Size size) {
+  tester.view.physicalSize = size;
+  tester.view.devicePixelRatio = 1;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
+}
+
+final _recordButton = find.byKey(const ValueKey('custom-reference-record'));
+final _reviewButton = find.byKey(const ValueKey('custom-movement-review'));
+final _saveButton = find.byKey(const ValueKey('custom-movement-save'));
+final _backButton = find.byKey(const ValueKey('custom-movement-back'));
+
+VoidCallback? _onPressed(WidgetTester tester, Finder finder) =>
+    tester.widget<ElixPrimaryButton>(finder).onPressed;
+
+AuthoringCheckState _pillState(WidgetTester tester, String key) =>
+    tester.widget<AuthoringStatusPill>(find.byKey(ValueKey(key))).state;
+
+Future<void> _tapKey(WidgetTester tester, String key) async {
+  final target = find.byKey(ValueKey(key));
+  await tester.ensureVisible(target);
+  await tester.tap(target);
+  await tester.pump(const Duration(milliseconds: 100));
+}
+
 Future<void> _record(WidgetTester tester, _Socket socket) async {
   await _startReferenceRecording(tester, socket);
-  await tester.tap(find.byKey(const ValueKey('custom-reference-record')));
+  await tester.tap(_recordButton);
   await tester.pump(const Duration(milliseconds: 100));
 }
 
@@ -420,22 +460,21 @@ Future<void> _startReferenceRecording(
   WidgetTester tester,
   _Socket socket,
 ) async {
-  await tester.ensureVisible(
-    find.byKey(const ValueKey('custom-reference-record')),
-  );
+  await tester.ensureVisible(_recordButton);
   socket.ready();
   await tester.pump();
-  await tester.tap(find.byKey(const ValueKey('custom-reference-record')));
+  await tester.tap(_recordButton);
   await tester.pump(const Duration(seconds: 1));
   await tester.pump(const Duration(seconds: 1));
   await tester.pump(const Duration(seconds: 1));
   await tester.pump();
-  expect(find.text('Finish example'), findsOneWidget);
-  expect(find.text('● Recording · 00:15 remaining'), findsOneWidget);
+  expect(find.text('Stop & save example'), findsOneWidget);
+  expect(find.text('REC'), findsOneWidget);
+  expect(find.text('00:15 remaining'), findsOneWidget);
   expect(socket.lastCaptureDurationSeconds, 15);
 }
 
-Future<void> _enterReferenceStudio(WidgetTester tester, _Socket socket) async {
+Future<void> _fillDetails(WidgetTester tester) async {
   await tester.enterText(
     find.byKey(const ValueKey('custom-movement-name')),
     'Bottle Loop',
@@ -444,53 +483,254 @@ Future<void> _enterReferenceStudio(WidgetTester tester, _Socket socket) async {
     find.byKey(const ValueKey('custom-movement-description')),
     'Hold the bottle, loop it once, then catch it.',
   );
-  await tester.ensureVisible(
-    find.byKey(const ValueKey('custom-movement-next')),
-  );
-  await tester.tap(find.byKey(const ValueKey('custom-movement-next')));
+}
+
+Future<void> _continueToRecording(WidgetTester tester) async {
+  final next = find.byKey(const ValueKey('custom-movement-next'));
+  await tester.ensureVisible(next);
+  await tester.tap(next);
   await tester.pump(const Duration(milliseconds: 100));
-  socket.ready();
-  await tester.pump();
-  final record = find.byKey(const ValueKey('custom-reference-record'));
+}
+
+Future<void> _waitUntilRecordable(WidgetTester tester) async {
   for (var attempt = 0; attempt < 20; attempt++) {
     await tester.pump(const Duration(milliseconds: 50));
-    if (tester.widget<ElixPrimaryButton>(record).onPressed != null) break;
+    if (_onPressed(tester, _recordButton) != null) break;
   }
-  expect(tester.widget<ElixPrimaryButton>(record).onPressed, isNotNull);
+  expect(_onPressed(tester, _recordButton), isNotNull);
+}
+
+Future<void> _enterReferenceStudio(WidgetTester tester, _Socket socket) async {
+  await _fillDetails(tester);
+  await _continueToRecording(tester);
+  socket.ready();
+  await tester.pump();
+  await _waitUntilRecordable(tester);
 }
 
 Future<void> _recordTwoReferences(WidgetTester tester, _Socket socket) async {
-  await tester.enterText(
-    find.byKey(const ValueKey('custom-movement-name')),
-    'Bottle Loop',
-  );
-  await tester.enterText(
-    find.byKey(const ValueKey('custom-movement-description')),
-    'A complete bottle loop.',
-  );
-  await tester.ensureVisible(
-    find.byKey(const ValueKey('custom-movement-next')),
-  );
-  await tester.tap(find.byKey(const ValueKey('custom-movement-next')));
-  await tester.pump(const Duration(milliseconds: 100));
-  socket.ready();
-  for (var attempt = 0; attempt < 20; attempt++) {
-    await tester.pump(const Duration(milliseconds: 50));
-    if (tester
-            .widget<ElixPrimaryButton>(
-              find.byKey(const ValueKey('custom-reference-record')),
-            )
-            .onPressed !=
-        null) {
-      break;
-    }
+  await _enterReferenceStudio(tester, socket);
+  await _record(tester, socket);
+  await _record(tester, socket);
+}
+
+/// Moves the start handle with the keyboard (100 ms per arrow press).
+Future<void> _nudgeTrimStart(WidgetTester tester, int steps) async {
+  final handle = find.byKey(const ValueKey('trim-start-handle'));
+  await tester.ensureVisible(handle);
+  await tester.tap(handle);
+  await tester.pump();
+  for (var index = 0; index < steps.abs(); index++) {
+    await tester.sendKeyEvent(
+      steps > 0 ? LogicalKeyboardKey.arrowRight : LogicalKeyboardKey.arrowLeft,
+    );
   }
-  await _record(tester, socket);
-  await _record(tester, socket);
+  await tester.pump();
+}
+
+Future<void> _tapReview(WidgetTester tester) async {
+  await tester.ensureVisible(_reviewButton);
+  await tester.tap(_reviewButton);
+  await tester.pump(const Duration(milliseconds: 100));
+}
+
+void _expectFullyVisible(WidgetTester tester, Finder finder, Size viewport) {
+  final rect = tester.getRect(finder);
+  expect(rect.top, greaterThanOrEqualTo(0), reason: '$finder top');
+  expect(rect.bottom, lessThanOrEqualTo(viewport.height), reason: '$finder');
+  expect(rect.right, lessThanOrEqualTo(viewport.width), reason: '$finder');
 }
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  testWidgets('wizard exposes exactly three labelled steps', (tester) async {
+    _useViewport(tester, const Size(1366, 768));
+    final socket = _Socket();
+    addTearDown(socket.close);
+    await tester.pumpWidget(_host(repository: _Repository(), socket: socket));
+
+    for (var index = 0; index < 3; index++) {
+      expect(find.byKey(ValueKey('authoring-step-$index')), findsOneWidget);
+    }
+    expect(find.byKey(const ValueKey('authoring-step-3')), findsNothing);
+    expect(find.text('Set up'), findsOneWidget);
+    expect(find.text('Record examples'), findsOneWidget);
+    expect(find.text('Review & save'), findsOneWidget);
+    expect(find.text('Continue to recording'), findsOneWidget);
+    expect(_backButton, findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'entering Step 2 prepares once without a competing camera discovery scan',
+    (tester) async {
+      _useViewport(tester, const Size(1366, 768));
+      final socket = _Socket();
+      addTearDown(socket.close);
+      final cameraRequests = <Uri>[];
+      await tester.pumpWidget(
+        _host(
+          repository: _Repository(),
+          socket: socket,
+          settingsOverride: _Settings(deviceId: 'dev-a'),
+          cameraRequests: cameraRequests,
+        ),
+      );
+      await _fillDetails(tester);
+      await _continueToRecording(tester);
+      await tester.pump(const Duration(milliseconds: 200));
+
+      expect(socket.preparedCameraIds, ['dev-a']);
+      expect(cameraRequests, isEmpty);
+      expect(
+        tester
+            .widget<CameraSourcePreference>(find.byType(CameraSourcePreference))
+            .refreshOnMount,
+        isFalse,
+      );
+
+      // Leaving and re-entering Step 2 keeps the one prepared session.
+      await tester.tap(_backButton);
+      await tester.pump(const Duration(milliseconds: 200));
+      await _continueToRecording(tester);
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(socket.preparedCameraIds, ['dev-a']);
+      expect(cameraRequests, isEmpty);
+
+      // Only the explicit Refresh action enumerates cameras.
+      await tester.tap(find.byKey(const ValueKey('camera-source-refresh')));
+      await tester.pump();
+      await tester.pump();
+      expect(cameraRequests, hasLength(1));
+      expect(cameraRequests.single.queryParameters['force_refresh'], 'true');
+      expect(socket.preparedCameraIds, ['dev-a']);
+      await tester.pump(const Duration(seconds: 1));
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'camera shows an intentional loading state until the first JPEG',
+    (tester) async {
+      _useViewport(tester, const Size(1366, 768));
+      final socket = _Socket();
+      addTearDown(socket.close);
+      await tester.pumpWidget(_host(repository: _Repository(), socket: socket));
+      await _fillDetails(tester);
+      await _continueToRecording(tester);
+
+      final placeholder = find.byKey(
+        const ValueKey('custom-camera-placeholder'),
+      );
+      expect(placeholder, findsOneWidget);
+      expect(find.text('Starting camera…'), findsOneWidget);
+      expect(find.text('Auto-select camera'), findsOneWidget);
+      expect(
+        find.text('This may take a moment while ELIXR checks the camera.'),
+        findsOneWidget,
+      );
+      expect(_onPressed(tester, _recordButton), isNull);
+      final sizeBefore = tester.getSize(find.byType(AspectRatio).first);
+
+      socket.ready();
+      await tester.pump();
+      expect(placeholder, findsNothing);
+      expect(find.text('Starting camera…'), findsNothing);
+      expect(find.text('LIVE'), findsOneWidget);
+      expect(tester.getSize(find.byType(AspectRatio).first), sizeBefore);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('camera preparation failure offers a real retry', (tester) async {
+    _useViewport(tester, const Size(1366, 768));
+    final socket = _Socket()..rejectNextPrepare = true;
+    addTearDown(socket.close);
+    await tester.pumpWidget(_host(repository: _Repository(), socket: socket));
+    await _fillDetails(tester);
+    await _continueToRecording(tester);
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(find.text('Camera could not start'), findsOneWidget);
+    expect(find.text('Starting camera…'), findsNothing);
+    expect(socket.preparedCameraIds, hasLength(1));
+
+    await tester.tap(find.byKey(const ValueKey('custom-camera-retry')));
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(socket.preparedCameraIds, hasLength(2));
+    expect(find.text('Camera could not start'), findsNothing);
+    expect(find.text('Starting camera…'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('countdown and recording state are prominent and accurate', (
+    tester,
+  ) async {
+    _useViewport(tester, const Size(1366, 768));
+    final socket = _Socket();
+    addTearDown(socket.close);
+    await tester.pumpWidget(_host(repository: _Repository(), socket: socket));
+    await _enterReferenceStudio(tester, socket);
+    expect(find.text('Record example 1'), findsOneWidget);
+    expect(find.text('0 of 2 required · Up to 5 examples'), findsOneWidget);
+
+    Finder countdown(String value) => find.descendant(
+      of: find.byKey(const ValueKey('custom-recording-countdown')),
+      matching: find.text(value),
+    );
+    await tester.tap(_recordButton);
+    await tester.pump();
+    expect(find.text('Recording starts in'), findsOneWidget);
+    expect(countdown('3'), findsOneWidget);
+    expect(find.text('REC'), findsNothing);
+    await tester.pump(const Duration(seconds: 1));
+    expect(countdown('2'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 1));
+    expect(countdown('1'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump();
+
+    expect(find.text('Recording starts in'), findsNothing);
+    expect(
+      find.byKey(const ValueKey('custom-recording-badge')),
+      findsOneWidget,
+    );
+    expect(find.text('REC'), findsOneWidget);
+    expect(find.text('00:15 remaining'), findsOneWidget);
+    final stop = tester.widget<ElixPrimaryButton>(_recordButton);
+    expect(stop.label, 'Stop & save example');
+    expect(stop.variant, ElixButtonVariant.destructive);
+
+    await tester.tap(_recordButton);
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.text('REC'), findsNothing);
+    expect(find.text('Record example 2'), findsOneWidget);
+    expect(find.text('1 of 2 required · Up to 5 examples'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('recording UI appears only after capture start is accepted', (
+    tester,
+  ) async {
+    _useViewport(tester, const Size(1366, 768));
+    final socket = _Socket()..rejectNextStartCapture = true;
+    addTearDown(socket.close);
+    await tester.pumpWidget(_host(repository: _Repository(), socket: socket));
+    await _enterReferenceStudio(tester, socket);
+
+    await tester.tap(_recordButton);
+    for (var second = 0; second < 3; second++) {
+      await tester.pump(const Duration(seconds: 1));
+    }
+    await tester.pump();
+
+    expect(socket.startCustomCaptureCalls, 1);
+    expect(find.text('REC'), findsNothing);
+    expect(find.text('Stop & save example'), findsNothing);
+    expect(find.textContaining('Could not start recording'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('Review commits a dirty trim before building the template', (
     tester,
@@ -499,19 +739,11 @@ void main() {
     addTearDown(socket.close);
     await tester.pumpWidget(_host(repository: _Repository(), socket: socket));
     await _recordTwoReferences(tester, socket);
-    final preview = find.text('Preview / edit').first;
-    await tester.ensureVisible(preview);
-    await tester.tap(preview);
-    await tester.pump(const Duration(milliseconds: 100));
-    await tester.ensureVisible(find.text('Apply changes'));
-    tester.widget<Slider>(find.byType(Slider).first).onChanged!(1000);
-    await tester.pump();
+    await _tapKey(tester, 'example-select-reference-1');
+    await _nudgeTrimStart(tester, 10);
+    expect(find.text('Start 00:01.00'), findsOneWidget);
 
-    await tester.ensureVisible(
-      find.byKey(const ValueKey('custom-movement-review')),
-    );
-    await tester.tap(find.byKey(const ValueKey('custom-movement-review')));
-    await tester.pump(const Duration(milliseconds: 100));
+    await _tapReview(tester);
 
     expect(socket.trimRanges, [('reference-1', 1000, 7000)]);
     expect(socket.commandOrder, ['trim', 'build']);
@@ -526,11 +758,7 @@ void main() {
     addTearDown(socket.close);
     await tester.pumpWidget(_host(repository: _Repository(), socket: socket));
     await _recordTwoReferences(tester, socket);
-    await tester.ensureVisible(
-      find.byKey(const ValueKey('custom-movement-review')),
-    );
-    await tester.tap(find.byKey(const ValueKey('custom-movement-review')));
-    await tester.pump(const Duration(milliseconds: 100));
+    await _tapReview(tester);
 
     expect(socket.trimRanges, isEmpty);
     expect(socket.commandOrder, ['build']);
@@ -544,27 +772,98 @@ void main() {
       addTearDown(socket.close);
       await tester.pumpWidget(_host(repository: _Repository(), socket: socket));
       await _recordTwoReferences(tester, socket);
-      final preview = find.text('Preview / edit').first;
-      await tester.ensureVisible(preview);
-      await tester.tap(preview);
-      await tester.pump(const Duration(milliseconds: 100));
-      await tester.ensureVisible(find.text('Apply changes'));
-      tester.widget<Slider>(find.byType(Slider).first).onChanged!(1000);
-      await tester.pump();
-      await tester.ensureVisible(
-        find.byKey(const ValueKey('custom-movement-review')),
-      );
-      await tester.tap(find.byKey(const ValueKey('custom-movement-review')));
-      await tester.pump(const Duration(milliseconds: 100));
+      await _tapKey(tester, 'example-select-reference-1');
+      await _nudgeTrimStart(tester, 10);
+      await _tapReview(tester);
 
       expect(socket.commandOrder, ['trim']);
       expect(socket.buildCalls, 0);
       expect(socket.committedTrims['reference-1'], (0, 7000));
       expect(find.textContaining('Could not apply the trim'), findsOneWidget);
-      expect(find.text('Apply changes'), findsOneWidget);
-      expect(find.text('Review movement'), findsOneWidget);
+      expect(find.text('Apply trim'), findsOneWidget);
+      expect(find.text('Continue to review'), findsOneWidget);
     },
   );
+
+  testWidgets('trim handles cannot cross and Apply sends exact milliseconds', (
+    tester,
+  ) async {
+    _useViewport(tester, const Size(1366, 768));
+    final socket = _Socket();
+    addTearDown(socket.close);
+    await tester.pumpWidget(_host(repository: _Repository(), socket: socket));
+    await _enterReferenceStudio(tester, socket);
+    await _record(tester, socket);
+
+    // Keyboard nudges are 100 ms; the start cannot move below zero.
+    await _nudgeTrimStart(tester, -3);
+    expect(find.text('Start 00:00.00'), findsOneWidget);
+    await _nudgeTrimStart(tester, 15);
+    expect(find.text('Start 00:01.50'), findsOneWidget);
+    await _tapKey(tester, 'trim-apply');
+    expect(socket.trimRanges.last, ('reference-1', 1500, 7000));
+
+    // Dragging the start past the end stops one millisecond short of it.
+    final startHandle = find.byKey(const ValueKey('trim-start-handle'));
+    await tester.ensureVisible(startHandle);
+    await tester.drag(startHandle, const Offset(4000, 0));
+    await tester.pump();
+    expect(find.text('Start 00:06.99'), findsOneWidget);
+    expect(find.text('End 00:07.00'), findsOneWidget);
+
+    // Dragging the end past the start stops one millisecond after it.
+    final endHandle = find.byKey(const ValueKey('trim-end-handle'));
+    await tester.drag(endHandle, const Offset(-4000, 0));
+    await tester.pump();
+    await _tapKey(tester, 'trim-apply');
+    final (id, start, end) = socket.trimRanges.last;
+    expect(id, 'reference-1');
+    expect(start, 6999);
+    expect(end, 7000);
+    expect(end - start, 1);
+
+    // Reset restores the full clip locally; Apply commits it.
+    await _tapKey(tester, 'trim-reset');
+    expect(find.text('Keeps 00:07.00'), findsOneWidget);
+    await _tapKey(tester, 'trim-apply');
+    expect(socket.trimRanges.last, ('reference-1', 0, 7000));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('rejected trim keeps the previously committed range', (
+    tester,
+  ) async {
+    _useViewport(tester, const Size(1366, 768));
+    final socket = _Socket();
+    addTearDown(socket.close);
+    await tester.pumpWidget(_host(repository: _Repository(), socket: socket));
+    await _enterReferenceStudio(tester, socket);
+    await _record(tester, socket);
+    await _nudgeTrimStart(tester, 10);
+    await _tapKey(tester, 'trim-apply');
+    expect(socket.committedTrims['reference-1'], (1000, 7000));
+
+    socket.rejectNextTrim = true;
+    await _nudgeTrimStart(tester, 20);
+    await _tapKey(tester, 'trim-apply');
+
+    expect(socket.trimRanges.last, ('reference-1', 3000, 7000));
+    expect(socket.committedTrims['reference-1'], (1000, 7000));
+    expect(
+      find.text(
+        'Keep more of the movement in the clip. The previous trim is still saved.',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('example-card-reference-1')),
+        matching: find.text('00:06.00 · Trimmed'),
+      ),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('insufficient template frames show guidance rather than a code', (
     tester,
@@ -573,11 +872,7 @@ void main() {
     addTearDown(socket.close);
     await tester.pumpWidget(_host(repository: _Repository(), socket: socket));
     await _recordTwoReferences(tester, socket);
-    await tester.ensureVisible(
-      find.byKey(const ValueKey('custom-movement-review')),
-    );
-    await tester.tap(find.byKey(const ValueKey('custom-movement-review')));
-    await tester.pump(const Duration(milliseconds: 100));
+    await _tapReview(tester);
 
     expect(find.text('insufficient_frames'), findsNothing);
     expect(
@@ -586,7 +881,7 @@ void main() {
       ),
       findsOneWidget,
     );
-    expect(find.text('Review movement'), findsOneWidget);
+    expect(find.text('Continue to review'), findsOneWidget);
   });
 
   testWidgets('unstable static reference shows the backend message', (
@@ -600,15 +895,11 @@ void main() {
     addTearDown(socket.close);
     await tester.pumpWidget(_host(repository: _Repository(), socket: socket));
     await _recordTwoReferences(tester, socket);
-    await tester.ensureVisible(
-      find.byKey(const ValueKey('custom-movement-review')),
-    );
-    await tester.tap(find.byKey(const ValueKey('custom-movement-review')));
-    await tester.pump(const Duration(milliseconds: 100));
+    await _tapReview(tester);
 
     expect(find.text(message), findsOneWidget);
     expect(find.textContaining('unstable_static_reference'), findsNothing);
-    expect(find.text('Review movement'), findsOneWidget);
+    expect(find.text('Continue to review'), findsOneWidget);
   });
 
   testWidgets('execution guidance is required before authoring can continue', (
@@ -618,10 +909,10 @@ void main() {
     addTearDown(socket.close);
     await tester.pumpWidget(_host(repository: _Repository(), socket: socket));
 
-    expect(find.text('How to perform this movement'), findsOneWidget);
+    expect(find.text('How to perform it'), findsOneWidget);
     expect(
       find.text(
-        'Explain the movement in order. ELIXR shows these instructions during practice.',
+        'Describe it step by step. ELIXR shows these instructions during practice.',
       ),
       findsOneWidget,
     );
@@ -629,28 +920,70 @@ void main() {
       find.byKey(const ValueKey('custom-movement-name')),
       'Bottle Loop',
     );
-    await tester.ensureVisible(
-      find.byKey(const ValueKey('custom-movement-next')),
-    );
-    await tester.tap(find.byKey(const ValueKey('custom-movement-next')));
-    await tester.pump(const Duration(milliseconds: 150));
+    await _continueToRecording(tester);
+    await tester.pump(const Duration(milliseconds: 50));
 
     expect(
       find.text('Describe how to perform this movement from start to finish.'),
       findsOneWidget,
     );
-    expect(find.text('Set up your movement'), findsWidgets);
+    expect(find.text('Movement basics'), findsOneWidget);
     expect(socket.preparedMode, isNull);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('movement behavior cards map to dynamic and static values', (
+    tester,
+  ) async {
+    _useViewport(tester, const Size(1366, 768));
+    final socket = _Socket();
+    addTearDown(socket.close);
+    await tester.pumpWidget(_host(repository: _Repository(), socket: socket));
+
+    AuthoringChoiceCard card(String value) =>
+        tester.widget<AuthoringChoiceCard>(
+          find.byKey(ValueKey('custom-movement-behavior-$value')),
+        );
+    expect(card('dynamic').selected, isTrue);
+    expect(card('static').selected, isFalse);
+    expect(
+      find.text(
+        'Use this for a grip, stall, or final position that should be held steady.',
+      ),
+      findsOneWidget,
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey('custom-movement-behavior-static')),
+    );
+    await tester.pump();
+    expect(card('static').selected, isTrue);
+    expect(card('dynamic').selected, isFalse);
+
+    await _enterReferenceStudio(tester, socket);
+    expect(
+      find.text('Show the grip or stall, then hold the final position steady.'),
+      findsOneWidget,
+    );
+    await _record(tester, socket);
+    await _record(tester, socket);
+
+    // Recorded examples lock the behavior until they are deleted.
+    await tester.tap(_backButton);
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(card('dynamic').onPressed, isNull);
+    expect(card('static').onPressed, isNull);
+    await _continueToRecording(tester);
+    await _tapReview(tester);
+    expect(socket.builtBehavior, 'static');
+    expect(find.text('Static hold'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
   testWidgets(
     'camera source change closes the old reference session before preparing another',
     (tester) async {
-      tester.view.physicalSize = const Size(1366, 768);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
+      _useViewport(tester, const Size(1366, 768));
       final socket = _Socket();
       addTearDown(socket.close);
       final settings = _Settings(deviceId: 'dev-a');
@@ -661,18 +994,8 @@ void main() {
           settingsOverride: settings,
         ),
       );
-      await tester.enterText(
-        find.byKey(const ValueKey('custom-movement-name')),
-        'Bottle Loop',
-      );
-      await tester.enterText(
-        find.byKey(const ValueKey('custom-movement-description')),
-        'A complete bottle loop.',
-      );
-      await tester.ensureVisible(
-        find.byKey(const ValueKey('custom-movement-next')),
-      );
-      await tester.tap(find.byKey(const ValueKey('custom-movement-next')));
+      await _fillDetails(tester);
+      await _continueToRecording(tester);
       for (
         var attempt = 0;
         attempt < 20 && socket.preparedCameraIds.isEmpty;
@@ -702,10 +1025,8 @@ void main() {
       socket.ready();
       await tester.pump();
       final cameraBefore = tester.getSize(find.byType(AspectRatio).first);
-      await tester.ensureVisible(
-        find.byKey(const ValueKey('custom-reference-record')),
-      );
-      await tester.tap(find.byKey(const ValueKey('custom-reference-record')));
+      await tester.ensureVisible(_recordButton);
+      await tester.tap(_recordButton);
       await tester.pump();
       expect(tester.getSize(find.byType(AspectRatio).first), cameraBefore);
       for (var second = 0; second < 3; second++) {
@@ -719,45 +1040,35 @@ void main() {
   testWidgets(
     'reference recording requires one person and rejected clips can be retried',
     (tester) async {
-      tester.view.physicalSize = const Size(1100, 800);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
+      _useViewport(tester, const Size(1100, 800));
       final socket = _Socket();
       addTearDown(socket.close);
       await tester.pumpWidget(_host(repository: _Repository(), socket: socket));
-      await tester.enterText(
-        find.byKey(const ValueKey('custom-movement-name')),
-        'Bottle Loop',
-      );
-      await tester.enterText(
-        find.byKey(const ValueKey('custom-movement-description')),
-        'A complete bottle loop.',
-      );
-      await tester.ensureVisible(
-        find.byKey(const ValueKey('custom-movement-next')),
-      );
-      await tester.tap(find.byKey(const ValueKey('custom-movement-next')));
-      await tester.pump(const Duration(milliseconds: 100));
-      final record = find.byKey(const ValueKey('custom-reference-record'));
+      await _fillDetails(tester);
+      await _continueToRecording(tester);
       socket.ready(personCount: 0);
       await tester.pump();
-      expect(tester.widget<ElixPrimaryButton>(record).onPressed, isNull);
+      expect(_onPressed(tester, _recordButton), isNull);
+      expect(find.text('Step into view so ELIXR can see you.'), findsOneWidget);
       socket.ready(personCount: 2);
       await tester.pump();
-      expect(tester.widget<ElixPrimaryButton>(record).onPressed, isNull);
+      expect(_onPressed(tester, _recordButton), isNull);
+      expect(
+        find.text('Only one person should be in view to record.'),
+        findsOneWidget,
+      );
       socket.ready(handsVisible: false);
       await tester.pump();
-      expect(tester.widget<ElixPrimaryButton>(record).onPressed, isNull);
+      expect(_onPressed(tester, _recordButton), isNull);
       socket.ready(upperBodyVisible: false);
       await tester.pump();
-      expect(tester.widget<ElixPrimaryButton>(record).onPressed, isNull);
+      expect(_onPressed(tester, _recordButton), isNull);
+      expect(
+        _pillState(tester, 'camera-check-body'),
+        AuthoringCheckState.missing,
+      );
       socket.ready();
-      for (var attempt = 0; attempt < 20; attempt++) {
-        await tester.pump(const Duration(milliseconds: 50));
-        if (tester.widget<ElixPrimaryButton>(record).onPressed != null) break;
-      }
-      expect(tester.widget<ElixPrimaryButton>(record).onPressed, isNotNull);
+      await _waitUntilRecordable(tester);
       socket.rejectNextReference = true;
       await _record(tester, socket);
       expect(socket.count, 0);
@@ -768,11 +1079,11 @@ void main() {
       await _record(tester, socket);
       expect(socket.count, 1);
       expect(socket.stopCustomCaptureCalls, 2);
-      expect(find.text('● Recording · 00:15 remaining'), findsNothing);
+      expect(find.text('REC'), findsNothing);
       expect(find.textContaining('Example 1'), findsWidgets);
       socket.ready(readinessStable: false);
       await tester.pump();
-      expect(tester.widget<ElixPrimaryButton>(record).onPressed, isNotNull);
+      expect(_onPressed(tester, _recordButton), isNotNull);
       expect(tester.takeException(), isNull);
     },
   );
@@ -780,10 +1091,7 @@ void main() {
   testWidgets('reference recording automatically finalizes at its deadline', (
     tester,
   ) async {
-    tester.view.physicalSize = const Size(1100, 800);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
+    _useViewport(tester, const Size(1100, 800));
     final socket = _Socket();
     addTearDown(socket.close);
     await tester.pumpWidget(_host(repository: _Repository(), socket: socket));
@@ -796,30 +1104,30 @@ void main() {
     expect(socket.startCustomCaptureCalls, 1);
     expect(socket.stopCustomCaptureCalls, 1);
     expect(socket.count, 1);
-    expect(find.text('● Recording · 00:15 remaining'), findsNothing);
-    expect(find.text('Finish example'), findsNothing);
+    expect(find.text('REC'), findsNothing);
+    expect(find.text('Stop & save example'), findsNothing);
     expect(find.textContaining('Example 1'), findsWidgets);
+
+    await tester.pump(const Duration(seconds: 20));
+    expect(socket.stopCustomCaptureCalls, 1);
     expect(tester.takeException(), isNull);
   });
 
   testWidgets('manual finish cancels timeout and sends one stop command', (
     tester,
   ) async {
-    tester.view.physicalSize = const Size(1100, 800);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
+    _useViewport(tester, const Size(1100, 800));
     final socket = _Socket()..stopReferenceCompleter = Completer<void>();
     addTearDown(socket.close);
     await tester.pumpWidget(_host(repository: _Repository(), socket: socket));
     await _enterReferenceStudio(tester, socket);
     await _startReferenceRecording(tester, socket);
 
-    await tester.tap(find.byKey(const ValueKey('custom-reference-record')));
+    await tester.tap(_recordButton);
     await tester.pump();
     expect(socket.stopCustomCaptureCalls, 1);
-    expect(find.text('● Recording · 00:15 remaining'), findsNothing);
-    expect(find.text('Finishing example…'), findsWidgets);
+    expect(find.text('REC'), findsNothing);
+    expect(find.text('Saving example…'), findsWidgets);
 
     await tester.pump(const Duration(seconds: 15));
     expect(socket.stopCustomCaptureCalls, 1);
@@ -836,10 +1144,7 @@ void main() {
   testWidgets('disposing the authoring page cancels its capture timer', (
     tester,
   ) async {
-    tester.view.physicalSize = const Size(1100, 800);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
+    _useViewport(tester, const Size(1100, 800));
     final socket = _Socket();
     addTearDown(socket.close);
     await tester.pumpWidget(_host(repository: _Repository(), socket: socket));
@@ -856,101 +1161,61 @@ void main() {
   testWidgets(
     'full page guides two required references and keeps a third optional',
     (tester) async {
-      tester.view.physicalSize = const Size(1100, 800);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
+      _useViewport(tester, const Size(1100, 800));
       final repository = _Repository();
       final socket = _Socket();
       addTearDown(socket.close);
       await tester.pumpWidget(_host(repository: repository, socket: socket));
       expect(find.byType(ContentDialog), findsNothing);
-      expect(find.text('Set up your movement'), findsWidgets);
-      expect(find.textContaining('Record references'), findsNothing);
-      await tester.enterText(
-        find.byKey(const ValueKey('custom-movement-name')),
-        'Bottle Loop',
-      );
-      await tester.enterText(
-        find.byKey(const ValueKey('custom-movement-description')),
-        'A complete bottle loop.',
-      );
-      await tester.ensureVisible(
-        find.byKey(const ValueKey('custom-movement-next')),
-      );
-      await tester.tap(find.byKey(const ValueKey('custom-movement-next')));
-      await tester.pump(const Duration(milliseconds: 100));
+      expect(find.text('Movement basics'), findsOneWidget);
+      await _fillDetails(tester);
+      await _continueToRecording(tester);
       expect(
-        tester.getTopLeft(find.text('Live camera').first).dx,
-        lessThan(tester.getTopLeft(find.text('Your examples')).dx),
+        tester.getTopLeft(find.text('Live camera')).dx,
+        lessThan(tester.getTopLeft(find.text('Examples')).dx),
       );
       expect(
         find.text(
-          'Perform the full movement from start to finish. Record it at least twice so ELIXR can learn the pattern.',
+          'Record the same movement at least twice. Three examples can improve consistency.',
         ),
         findsOneWidget,
       );
-      expect(
-        tester
-            .widget<ElixPrimaryButton>(
-              find.byKey(const ValueKey('custom-movement-review')),
-            )
-            .onPressed,
-        isNull,
-      );
+      expect(find.text('0 of 2 required'), findsOneWidget);
+      expect(_onPressed(tester, _reviewButton), isNull);
+      expect(find.text('Record 2 more examples to continue.'), findsOneWidget);
       socket.ready(handsVisible: true);
-      for (var attempt = 0; attempt < 20; attempt++) {
-        await tester.pump(const Duration(milliseconds: 50));
-        if (tester
-                .widget<ElixPrimaryButton>(
-                  find.byKey(const ValueKey('custom-reference-record')),
-                )
-                .onPressed !=
-            null) {
-          break;
-        }
-      }
+      await _waitUntilRecordable(tester);
       expect(find.textContaining('Could not prepare'), findsNothing);
+      for (final key in [
+        'camera-check-person',
+        'camera-check-prop',
+        'camera-check-hands',
+        'camera-check-body',
+      ]) {
+        expect(_pillState(tester, key), AuthoringCheckState.ok, reason: key);
+      }
+      expect(find.text('Starting camera…'), findsNothing);
       expect(
-        find.text('In view'),
-        findsWidgets,
-        reason: tester
-            .widgetList<Text>(find.byType(Text))
-            .map((item) => item.data)
-            .whereType<String>()
-            .join(' | '),
-      );
-      expect(find.text('Preparing camera…'), findsNothing);
-      expect(
-        find.text('Keep at least one hand visible to record'),
-        findsNothing,
+        find.text('Everything is in view. You can record now.'),
+        findsOneWidget,
       );
       socket.ready(handsVisible: false);
       await tester.pump();
       expect(
-        find.text('Keep at least one hand visible to record'),
-        findsOneWidget,
+        _pillState(tester, 'camera-check-hands'),
+        AuthoringCheckState.missing,
       );
       expect(
-        find.textContaining('Keep your hands fully visible'),
+        find.text('Move your hands fully into view to start recording.'),
         findsOneWidget,
       );
-      expect(
-        tester
-            .widget<ElixPrimaryButton>(
-              find.byKey(const ValueKey('custom-reference-record')),
-            )
-            .onPressed,
-        isNull,
-      );
+      expect(_onPressed(tester, _recordButton), isNull);
       socket.ready(handsVisible: true);
       await tester.pump();
       await _record(tester, socket);
-      expect(find.textContaining('Example 1'), findsWidgets);
-      expect(find.text('Good reference'), findsNothing);
-      expect(find.text('✓ Accepted'), findsWidgets);
-      expect(find.text('Hands were difficult to see'), findsOneWidget);
-      expect(find.textContaining('Left hand: 25% of frames'), findsOneWidget);
+      expect(find.text('Example 1'), findsOneWidget);
+      expect(find.text('Hands hard to see'), findsOneWidget);
+      expect(find.textContaining('left hand 25%'), findsOneWidget);
       expect(find.byType(ElixrVideoPlayer), findsOneWidget);
       expect(
         find.descendant(
@@ -959,70 +1224,39 @@ void main() {
         ),
         findsNothing,
       );
-      expect(
-        tester
-            .widget<ElixPrimaryButton>(
-              find.byKey(const ValueKey('custom-movement-review')),
-            )
-            .onPressed,
-        isNull,
-      );
+      expect(_onPressed(tester, _reviewButton), isNull);
       await _record(tester, socket);
-      expect(find.textContaining('Example 2'), findsWidgets);
+      expect(find.text('Example 2'), findsOneWidget);
+      expect(find.text('Ready to review'), findsOneWidget);
       expect(
-        find.textContaining(
-          'A third example helps ELIXR learn the pattern more consistently',
+        find.text(
+          'A third example can help ELIXR learn the movement more consistently.',
         ),
         findsOneWidget,
       );
-      expect(
-        tester
-            .widget<ElixPrimaryButton>(
-              find.byKey(const ValueKey('custom-movement-review')),
-            )
-            .onPressed,
-        isNotNull,
-      );
-      await tester.ensureVisible(
-        find.byKey(const ValueKey('custom-movement-review')),
-      );
-      await tester.tap(find.byKey(const ValueKey('custom-movement-review')));
-      await tester.pump(const Duration(milliseconds: 100));
+      expect(_onPressed(tester, _reviewButton), isNotNull);
+      await _tapReview(tester);
       expect(find.text('Only prop movement was learned'), findsOneWidget);
-      expect(find.text('Upper body'), findsNothing);
-      expect(find.text('Go back and record better examples'), findsOneWidget);
-      expect(
-        tester
-            .widget<ElixPrimaryButton>(
-              find.byKey(const ValueKey('custom-movement-save')),
-            )
-            .onPressed,
-        isNotNull,
-      );
-      await tester.tap(find.text('Previous'));
+      expect(_pillState(tester, 'learned-pose'), AuthoringCheckState.missing);
+      expect(_pillState(tester, 'learned-hands'), AuthoringCheckState.missing);
+      expect(_pillState(tester, 'learned-prop'), AuthoringCheckState.ok);
+      expect(find.text('Record better examples'), findsOneWidget);
+      expect(_onPressed(tester, _saveButton), isNotNull);
+      await tester.tap(_backButton);
       await tester.pump(const Duration(milliseconds: 100));
       for (var index = 0; index < 3; index++) {
         await _record(tester, socket);
         if (index == 0) {
           expect(
-            find.textContaining('Recommended amount reached'),
+            find.text('You can review whenever you are ready.'),
             findsOneWidget,
           );
         }
       }
       expect(find.textContaining('5 example limit'), findsOneWidget);
-      expect(
-        tester
-            .widget<ElixPrimaryButton>(
-              find.byKey(const ValueKey('custom-reference-record')),
-            )
-            .onPressed,
-        isNull,
-      );
-      final previews = find.text('Preview / edit');
-      await tester.ensureVisible(previews.at(1));
-      await tester.tap(previews.at(1));
-      await tester.pump(const Duration(milliseconds: 100));
+      expect(_onPressed(tester, _recordButton), isNull);
+      expect(find.text('Example limit reached'), findsOneWidget);
+      await _tapKey(tester, 'example-select-reference-2');
       expect(
         find.byKey(const ValueKey('reference-player-reference-2')),
         findsOneWidget,
@@ -1035,23 +1269,20 @@ void main() {
         ),
         findsNothing,
       );
-      await tester.ensureVisible(find.text('Apply changes'));
-      tester.widget<Slider>(find.byType(Slider).first).onChanged!(1000);
-      await tester.pump();
-      expect(find.text('Start  00:01.00'), findsOneWidget);
-      await tester.tap(find.text('Apply changes'));
-      await tester.pump(const Duration(milliseconds: 100));
+      await _nudgeTrimStart(tester, 10);
+      expect(find.text('Start 00:01.00'), findsOneWidget);
+      expect(find.text('Trim not applied yet'), findsOneWidget);
+      await _tapKey(tester, 'trim-apply');
       expect(socket.trimmed, ['reference-2']);
+      expect(socket.trimRanges.last, ('reference-2', 1000, 7000));
       await tester.pump(const Duration(milliseconds: 100));
-      await tester.ensureVisible(find.text('Reset trim'));
-      await tester.tap(find.text('Reset trim'));
-      await tester.pump(const Duration(milliseconds: 100));
-      expect(find.text('Start  00:00.00'), findsOneWidget);
-      expect(find.text('Selected  00:07.00'), findsOneWidget);
+      await _tapKey(tester, 'trim-reset');
+      expect(find.text('Start 00:00.00'), findsOneWidget);
+      expect(find.text('Keeps 00:07.00'), findsOneWidget);
+      expect(socket.trimmed, ['reference-2']);
+      await _tapKey(tester, 'trim-apply');
       expect(socket.trimmed, ['reference-2', 'reference-2']);
-      await tester.ensureVisible(find.text('Delete').at(1));
-      await tester.tap(find.text('Delete').at(1));
-      await tester.pump(const Duration(milliseconds: 100));
+      await _tapKey(tester, 'example-delete-reference-2');
       await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 100)),
       );
@@ -1061,6 +1292,14 @@ void main() {
         find.byKey(const ValueKey('reference-player-reference-2')),
         findsNothing,
       );
+      expect(
+        find.byKey(const ValueKey('example-card-reference-2')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const ValueKey('example-card-reference-3')),
+        findsOneWidget,
+      );
       expect(find.textContaining('Example 4'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
@@ -1069,10 +1308,7 @@ void main() {
   testWidgets(
     'existing teacher template stays active without historical clips',
     (tester) async {
-      tester.view.physicalSize = const Size(650, 750);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
+      _useViewport(tester, const Size(650, 750));
       final repository = _Repository();
       final socket = _Socket();
       addTearDown(socket.close);
@@ -1093,29 +1329,15 @@ void main() {
           role: CustomMovementOwnerRole.teacher,
         ),
       );
-      await tester.ensureVisible(
-        find.byKey(const ValueKey('custom-movement-next')),
-      );
-      await tester.tap(find.byKey(const ValueKey('custom-movement-next')));
-      await tester.pump(const Duration(milliseconds: 100));
+      await _continueToRecording(tester);
+      expect(socket.preparedCameraIds, isEmpty);
       expect(
         find.textContaining('Earlier recordings were not saved'),
         findsOneWidget,
       );
       expect(find.text('Record new examples'), findsOneWidget);
-      await tester.ensureVisible(
-        find.byKey(const ValueKey('custom-movement-review')),
-      );
-      await tester.tap(find.byKey(const ValueKey('custom-movement-review')));
-      await tester.pump(const Duration(milliseconds: 100));
-      expect(
-        tester
-            .widget<ElixPrimaryButton>(
-              find.byKey(const ValueKey('custom-movement-save')),
-            )
-            .onPressed,
-        isNotNull,
-      );
+      await _tapReview(tester);
+      expect(_onPressed(tester, _saveButton), isNotNull);
       expect(tester.takeException(), isNull);
     },
   );
@@ -1123,10 +1345,7 @@ void main() {
   testWidgets('save errors identify the failed persistence step', (
     tester,
   ) async {
-    tester.view.physicalSize = const Size(650, 750);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
+    _useViewport(tester, const Size(650, 750));
 
     for (final stage in [
       CustomMovementSaveStage.referenceImageUpload,
@@ -1156,20 +1375,10 @@ void main() {
           revision: revision,
         ),
       );
-      await tester.ensureVisible(
-        find.byKey(const ValueKey('custom-movement-next')),
-      );
-      await tester.tap(find.byKey(const ValueKey('custom-movement-next')));
-      await tester.pump();
-      await tester.ensureVisible(
-        find.byKey(const ValueKey('custom-movement-review')),
-      );
-      await tester.tap(find.byKey(const ValueKey('custom-movement-review')));
-      await tester.pump();
-      await tester.ensureVisible(
-        find.byKey(const ValueKey('custom-movement-save')),
-      );
-      await tester.tap(find.byKey(const ValueKey('custom-movement-save')));
+      await _continueToRecording(tester);
+      await _tapReview(tester);
+      await tester.ensureVisible(_saveButton);
+      await tester.tap(_saveButton);
       await tester.pump();
       await tester.pump();
 
@@ -1184,10 +1393,7 @@ void main() {
   testWidgets('a teardown failure after save cannot submit the save twice', (
     tester,
   ) async {
-    tester.view.physicalSize = const Size(650, 750);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
+    _useViewport(tester, const Size(650, 750));
 
     final repository = _Repository();
     final socket = _Socket()..failDisconnect = true;
@@ -1208,20 +1414,10 @@ void main() {
         revision: revision,
       ),
     );
-    await tester.ensureVisible(
-      find.byKey(const ValueKey('custom-movement-next')),
-    );
-    await tester.tap(find.byKey(const ValueKey('custom-movement-next')));
-    await tester.pump();
-    await tester.ensureVisible(
-      find.byKey(const ValueKey('custom-movement-review')),
-    );
-    await tester.tap(find.byKey(const ValueKey('custom-movement-review')));
-    await tester.pump();
-    await tester.ensureVisible(
-      find.byKey(const ValueKey('custom-movement-save')),
-    );
-    await tester.tap(find.byKey(const ValueKey('custom-movement-save')));
+    await _continueToRecording(tester);
+    await _tapReview(tester);
+    await tester.ensureVisible(_saveButton);
+    await tester.tap(_saveButton);
     await tester.pump();
     await tester.pump();
 
@@ -1234,23 +1430,40 @@ void main() {
     );
     expect(find.text('Close'), findsOneWidget);
 
-    await tester.ensureVisible(
-      find.byKey(const ValueKey('custom-movement-save')),
-    );
-    await tester.tap(find.byKey(const ValueKey('custom-movement-save')));
+    await tester.ensureVisible(_saveButton);
+    await tester.tap(_saveButton);
     await tester.pump();
     expect(repository.saveCalls, 1);
     await tester.pump(const Duration(milliseconds: 200));
     await tester.pumpWidget(const SizedBox());
   });
 
+  testWidgets('new movement saves through createMovement after review', (
+    tester,
+  ) async {
+    _useViewport(tester, const Size(1366, 768));
+    final repository = _Repository();
+    final socket = _Socket();
+    addTearDown(socket.close);
+    await tester.pumpWidget(_host(repository: repository, socket: socket));
+    await _recordTwoReferences(tester, socket);
+    await _tapReview(tester);
+    expect(find.text('Movement details'), findsOneWidget);
+    expect(find.text('Bottle Loop'), findsOneWidget);
+    expect(find.text('2 recorded'), findsOneWidget);
+
+    await tester.tap(_saveButton);
+    await tester.pump();
+    await tester.pump();
+    expect(repository.saveCalls, 1);
+    expect(repository.saved?.ownerRole, CustomMovementOwnerRole.trainee);
+    await tester.pump(const Duration(milliseconds: 200));
+  });
+
   testWidgets(
     'rotation is automatic optional evidence and review reports learned capability',
     (tester) async {
-      tester.view.physicalSize = const Size(1050, 800);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
+      _useViewport(tester, const Size(1050, 800));
       final repository = _Repository();
       final socket = _Socket();
       addTearDown(socket.close);
@@ -1275,31 +1488,18 @@ void main() {
         find.byKey(const ValueKey('custom-movement-require-rotation')),
         findsNothing,
       );
+      expect(find.text('Bottle rotation'), findsOneWidget);
       expect(
         find.textContaining(
-          'ELIXR may automatically learn visible projected bottle rotation',
+          'Rotation is optional and will not block assessment.',
         ),
         findsOneWidget,
       );
-      await tester.ensureVisible(
-        find.byKey(const ValueKey('custom-movement-next')),
-      );
-      await tester.tap(find.byKey(const ValueKey('custom-movement-next')));
-      await tester.pump(const Duration(milliseconds: 100));
-      await tester.ensureVisible(
-        find.byKey(const ValueKey('custom-movement-review')),
-      );
-      await tester.tap(find.byKey(const ValueKey('custom-movement-review')));
-      await tester.pump(const Duration(milliseconds: 100));
+      await _continueToRecording(tester);
+      await _tapReview(tester);
       expect(find.textContaining('Visible bottle rotation'), findsWidgets);
-      expect(
-        tester
-            .widget<ElixPrimaryButton>(
-              find.byKey(const ValueKey('custom-movement-save')),
-            )
-            .onPressed,
-        isNotNull,
-      );
+      expect(_pillState(tester, 'learned-rotation'), AuthoringCheckState.ok);
+      expect(_onPressed(tester, _saveButton), isNotNull);
 
       await tester.pumpWidget(const SizedBox());
       await tester.pumpWidget(
@@ -1314,41 +1514,22 @@ void main() {
         find.byKey(const ValueKey('custom-movement-require-rotation')),
         findsNothing,
       );
-      await tester.ensureVisible(
-        find.byKey(const ValueKey('custom-movement-next')),
-      );
-      await tester.tap(find.byKey(const ValueKey('custom-movement-next')));
-      await tester.pump(const Duration(milliseconds: 100));
+      await _continueToRecording(tester);
+      expect(_onPressed(tester, _reviewButton), isNotNull);
+      await _tapReview(tester);
       expect(
-        tester
-            .widget<ElixPrimaryButton>(
-              find.byKey(const ValueKey('custom-movement-review')),
-            )
-            .onPressed,
-        isNotNull,
+        _pillState(tester, 'learned-rotation'),
+        AuthoringCheckState.pending,
       );
-      await tester.ensureVisible(
-        find.byKey(const ValueKey('custom-movement-review')),
-      );
-      await tester.tap(find.byKey(const ValueKey('custom-movement-review')));
-      await tester.pump(const Duration(milliseconds: 100));
-      expect(
-        find.text('Visible bottle rotation was not learned'),
-        findsOneWidget,
-      );
+      expect(find.text('Not learned · optional'), findsOneWidget);
       expect(find.text('Visible bottle rotation bonus'), findsNothing);
       expect(
-        find.textContaining('This movement is still valid and scorable.'),
+        find.text(
+          'Rotation is optional. This movement can still be saved and scored.',
+        ),
         findsOneWidget,
       );
-      expect(
-        tester
-            .widget<ElixPrimaryButton>(
-              find.byKey(const ValueKey('custom-movement-save')),
-            )
-            .onPressed,
-        isNotNull,
-      );
+      expect(_onPressed(tester, _saveButton), isNotNull);
     },
   );
 
@@ -1376,10 +1557,7 @@ void main() {
   testWidgets('review shows only learned hand and body capabilities', (
     tester,
   ) async {
-    tester.view.physicalSize = const Size(1100, 700);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
+    _useViewport(tester, const Size(1100, 700));
     final socket = _Socket();
     addTearDown(socket.close);
     final movement = _movement(CustomMovementOwnerRole.trainee);
@@ -1405,84 +1583,130 @@ void main() {
         revision: revision,
       ),
     );
-    await tester.ensureVisible(
-      find.byKey(const ValueKey('custom-movement-next')),
-    );
-    await tester.tap(find.byKey(const ValueKey('custom-movement-next')));
-    await tester.pump();
-    await tester.ensureVisible(
-      find.byKey(const ValueKey('custom-movement-review')),
-    );
-    await tester.tap(find.byKey(const ValueKey('custom-movement-review')));
-    await tester.pump();
+    await _continueToRecording(tester);
+    await _tapReview(tester);
     expect(find.text('Hands'), findsOneWidget);
     expect(find.text('Upper body'), findsOneWidget);
+    expect(_pillState(tester, 'learned-hands'), AuthoringCheckState.ok);
+    expect(_pillState(tester, 'learned-pose'), AuthoringCheckState.ok);
     expect(find.text('Hands were not learned'), findsNothing);
+    expect(
+      find.byKey(const ValueKey('custom-movement-learning-warning')),
+      findsNothing,
+    );
     await tester.pump(const Duration(milliseconds: 150));
     expect(tester.takeException(), isNull);
   });
 
+  for (final size in const [Size(1366, 768), Size(1648, 920)]) {
+    testWidgets(
+      'desktop ${size.width.toInt()}x${size.height.toInt()} keeps step actions visible without scrolling',
+      (tester) async {
+        _useViewport(tester, size);
+        final socket = _Socket();
+        addTearDown(socket.close);
+        await tester.pumpWidget(
+          _host(repository: _Repository(), socket: socket),
+        );
+        final next = find.byKey(const ValueKey('custom-movement-next'));
+        _expectFullyVisible(tester, next, size);
+        _expectFullyVisible(
+          tester,
+          find.byKey(const ValueKey('authoring-step-2')),
+          size,
+        );
+
+        await _fillDetails(tester);
+        await tester.tap(next);
+        await tester.pump(const Duration(milliseconds: 100));
+        socket.ready();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 250));
+
+        for (final finder in [
+          _recordButton,
+          _reviewButton,
+          _backButton,
+          find.byKey(const ValueKey('custom-camera-frame')),
+          find.byKey(const ValueKey('camera-check-guidance')),
+          find.text('Examples'),
+        ]) {
+          _expectFullyVisible(tester, finder, size);
+        }
+        // Camera and examples share the row; the camera is the larger panel.
+        final camera = tester.getRect(
+          find.byKey(const ValueKey('custom-camera-frame')),
+        );
+        expect(camera.width, greaterThan(size.width * 0.38));
+        expect(
+          tester.getTopLeft(find.text('Examples')).dx,
+          greaterThan(camera.right),
+        );
+
+        await _record(tester, socket);
+        await _record(tester, socket);
+        _expectFullyVisible(tester, _reviewButton, size);
+        _expectFullyVisible(tester, _recordButton, size);
+        expect(_onPressed(tester, _reviewButton), isNotNull);
+        await tester.tap(_reviewButton);
+        await tester.pump(const Duration(milliseconds: 100));
+        await tester.pump(const Duration(milliseconds: 250));
+        _expectFullyVisible(tester, _saveButton, size);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
   testWidgets('narrow recording studio stacks live capture above examples', (
     tester,
   ) async {
-    tester.view.physicalSize = const Size(450, 750);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
+    _useViewport(tester, const Size(450, 750));
     final socket = _Socket();
     addTearDown(socket.close);
     await tester.pumpWidget(_host(repository: _Repository(), socket: socket));
-    await tester.enterText(
-      find.byKey(const ValueKey('custom-movement-name')),
-      'Bottle Loop',
-    );
-    await tester.enterText(
-      find.byKey(const ValueKey('custom-movement-description')),
-      'A complete bottle loop.',
-    );
-    await tester.ensureVisible(
-      find.byKey(const ValueKey('custom-movement-next')),
-    );
-    await tester.tap(find.byKey(const ValueKey('custom-movement-next')));
-    await tester.pump(const Duration(milliseconds: 100));
+    await _fillDetails(tester);
+    await _continueToRecording(tester);
     socket.ready();
     await tester.pump();
-    final live = find.text('Live camera').first;
-    final examples = find.text('Your examples');
+    final live = find.text('Live camera');
+    final examples = find.text('Examples');
     expect(
       tester.getTopLeft(live).dy,
       lessThan(tester.getTopLeft(examples).dy),
     );
+    expect(
+      find.ancestor(of: examples, matching: find.byType(SingleChildScrollView)),
+      findsWidgets,
+    );
+    // The step action stays pinned while the studio scrolls.
+    _expectFullyVisible(tester, _reviewButton, const Size(450, 750));
     await _record(tester, socket);
     expect(find.byType(ElixrVideoPlayer), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('short windows fall back to one scrolling page', (tester) async {
+    _useViewport(tester, const Size(1024, 520));
+    final socket = _Socket();
+    addTearDown(socket.close);
+    await tester.pumpWidget(_host(repository: _Repository(), socket: socket));
+    await _enterReferenceStudio(tester, socket);
+    await _record(tester, socket);
+    await _record(tester, socket);
+    await tester.ensureVisible(_reviewButton);
+    await tester.pump();
+    expect(_onPressed(tester, _reviewButton), isNotNull);
     expect(tester.takeException(), isNull);
   });
 
   testWidgets('wide studio keeps compact examples beside the live camera', (
     tester,
   ) async {
-    tester.view.physicalSize = const Size(1600, 900);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
+    _useViewport(tester, const Size(1600, 900));
     final socket = _Socket();
     addTearDown(socket.close);
     await tester.pumpWidget(_host(repository: _Repository(), socket: socket));
-    await tester.enterText(
-      find.byKey(const ValueKey('custom-movement-name')),
-      'Bottle Loop',
-    );
-    await tester.enterText(
-      find.byKey(const ValueKey('custom-movement-description')),
-      'A complete bottle loop.',
-    );
-    await tester.ensureVisible(
-      find.byKey(const ValueKey('custom-movement-next')),
-    );
-    await tester.tap(find.byKey(const ValueKey('custom-movement-next')));
-    await tester.pump(const Duration(milliseconds: 100));
-    socket.ready(handsVisible: true);
-    await tester.pump();
+    await _enterReferenceStudio(tester, socket);
     await _record(tester, socket);
     await _record(tester, socket);
     final first = tester.getTopLeft(
@@ -1500,10 +1724,7 @@ void main() {
   testWidgets('setup remains usable in light, dark, and high contrast themes', (
     tester,
   ) async {
-    tester.view.physicalSize = const Size(450, 750);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
+    _useViewport(tester, const Size(450, 750));
     for (final theme in [
       AppTheme.dark,
       AppTheme.light,
@@ -1515,7 +1736,7 @@ void main() {
       await tester.pumpWidget(
         _host(repository: _Repository(), socket: socket, theme: theme),
       );
-      expect(find.text('Set up your movement'), findsOneWidget);
+      expect(find.text('Movement basics'), findsOneWidget);
       expect(
         find.byKey(const ValueKey('custom-movement-name')),
         findsOneWidget,

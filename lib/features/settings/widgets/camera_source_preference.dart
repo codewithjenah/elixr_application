@@ -21,12 +21,21 @@ class CameraSourcePreference extends StatefulWidget {
     this.compact = false,
     this.onSelectionSaved,
     this.onSelectionBusyChanged,
+    this.refreshOnMount = true,
   });
 
   final SettingsService settings;
   final CameraDeviceService cameras;
   final bool enabled;
   final bool compact;
+
+  /// Whether mounting may request discovery when no list is cached yet.
+  ///
+  /// Screens that prepare a camera session while this selector mounts pass
+  /// `false`: a `GET /cameras` scan serializes on the same physical camera and
+  /// delays session startup. The saved `camera_device_id` is sufficient for
+  /// preparation, and the Refresh button still performs explicit discovery.
+  final bool refreshOnMount;
 
   /// Called after a changed camera preference has been persisted.
   final Future<void> Function(String? deviceId)? onSelectionSaved;
@@ -46,6 +55,7 @@ class _CameraSourcePreferenceState extends State<CameraSourcePreference> {
   @override
   void initState() {
     super.initState();
+    if (!widget.refreshOnMount) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || _refreshRequested) return;
       _refreshRequested = true;
@@ -281,6 +291,8 @@ class _CameraSourcePreferenceState extends State<CameraSourcePreference> {
   String _statusText() {
     final cameras = widget.cameras;
     switch (cameras.state) {
+      case CameraDiscoveryState.idle when !widget.refreshOnMount:
+        return 'Using your saved camera choice. Refresh to list cameras.';
       case CameraDiscoveryState.idle:
       case CameraDiscoveryState.loading:
         return 'Checking cameras…';

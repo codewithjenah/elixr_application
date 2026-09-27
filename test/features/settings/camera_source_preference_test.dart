@@ -297,6 +297,44 @@ void main() {
     expect(requests, 1);
   });
 
+  testWidgets('refreshOnMount false defers discovery to explicit Refresh', (
+    tester,
+  ) async {
+    final requested = <Uri>[];
+    final idle = CameraDeviceService(
+      httpGet: (uri) async {
+        requested.add(uri);
+        return _cameraResponse;
+      },
+    );
+    addTearDown(idle.dispose);
+    await tester.pumpWidget(
+      FluentApp(
+        theme: AppTheme.dark,
+        home: ScaffoldPage(
+          content: CameraSourcePreference(
+            settings: settings,
+            cameras: idle,
+            refreshOnMount: false,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(requested, isEmpty);
+    expect(idle.state, CameraDiscoveryState.idle);
+    expect(find.textContaining('Refresh to list cameras'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('camera-source-refresh')));
+    await tester.pump();
+    await tester.pump();
+    expect(requested, hasLength(1));
+    expect(requested.single.queryParameters['force_refresh'], 'true');
+    await tester.pump(const Duration(seconds: 1));
+  });
+
   testWidgets('unstable runtime identity cannot be persisted explicitly', (
     tester,
   ) async {
