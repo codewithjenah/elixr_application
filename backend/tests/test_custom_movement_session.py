@@ -870,26 +870,63 @@ def test_custom_assessment_preserves_short_release_catch_events_in_long_capture(
     assert evaluate_completion(template, missed_apex) == MOVEMENT_COMPLETED
 
 
-@pytest.mark.parametrize(
-    ("progress", "error_code"),
-    (
-        (WAITING_FOR_MOVEMENT, "custom_movement_not_detected"),
-        (MOVEMENT_DETECTED, "custom_assessment_incomplete"),
-    ),
-)
-def test_custom_assessment_cannot_score_before_completion(progress, error_code):
+def _timed_out_assessment(samples, progress, start_index=None):
+    session = websocket_api.VisionSession(
+        "Custom Movement",
+        session_mode="custom_assessment",
+        custom_movement_template=_template().to_dict(),
+    )
+    session._custom_samples = list(samples)
+    session._custom_assessment_progress = progress
+    session._custom_assessment_movement_start_index = start_index
+    try:
+        return session.finish_custom_assessment()
+    finally:
+        session.close()
+
+
+def test_completed_custom_assessment_scores_as_completed():
     session = websocket_api.VisionSession(
         "Custom Movement",
         session_mode="custom_assessment",
         custom_movement_template=_template().to_dict(),
     )
     session._custom_samples = list(_reference())
-    session._custom_assessment_progress = progress
-
-    with pytest.raises(ValueError, match=error_code):
-        session.finish_custom_assessment()
-
+    session._custom_assessment_progress = MOVEMENT_COMPLETED
+    result = session.finish_custom_assessment()
     session.close()
+
+    assert result["movement_completed"] is True
+    assert result["total"] >= 7
+
+
+def test_timeout_without_detected_movement_scores_zero():
+    reference = _reference()
+    stationary = tuple(
+        replace(reference[0], timestamp_ms=index * 100) for index in range(len(reference))
+    )
+    for samples in (stationary, reference):
+        result = _timed_out_assessment(samples, WAITING_FOR_MOVEMENT)
+        assert result["movement_completed"] is False
+        assert result["total"] == 0
+        assert result["score_percent"] == 0
+        assert result["performance_level"] == "beginning"
+        assert result["assessment_outcome"] == "needs_improvement"
+        assert all(score in (0, None) for score in result["component_scores"].values())
+        assert result["feedback"][0].startswith("Time expired")
+
+
+def test_timeout_with_partial_movement_scores_low_but_not_completed():
+    reference = _reference()
+    full = _timed_out_assessment(reference, MOVEMENT_DETECTED, 0)
+    partial = _timed_out_assessment(reference[: len(reference) // 3], MOVEMENT_DETECTED, 0)
+
+    for result in (full, partial):
+        assert result["movement_completed"] is False
+        assert 0 <= result["total"] <= 6
+        assert result["assessment_outcome"] == "needs_improvement"
+        assert result["feedback"][0] == "Time expired before the full movement was completed."
+    assert partial["total"] <= full["total"]
 
 
 def test_low_control_assessment_feedback_coaches_smooth_prop_motion():

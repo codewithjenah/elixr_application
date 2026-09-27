@@ -63,6 +63,13 @@ from assessment.custom_movement.completion import (
     estimate_sequence_progress as estimate_custom_sequence_progress,
     find_movement_start_index as find_custom_assessment_start_index,
 )
+from assessment.custom_movement.template_engine import (
+    SequenceComparison as CustomSequenceComparison,
+    _level as custom_performance_level,
+)
+
+# An attempt that never satisfied completion stays below "competent" (7).
+_CUSTOM_INCOMPLETE_MAX_TOTAL = 6
 from config import (
     DETECTION_PRESENTATION_GRACE_S,
     CUSTOM_PRESENTATION_MIN_GRACE_S,
@@ -1371,36 +1378,34 @@ class VisionSession:
             captured_samples = tuple(self._custom_samples or ())
             if not captured_samples:
                 raise ValueError("custom_capture_not_recording")
-            if self._custom_assessment_progress != CUSTOM_ASSESSMENT_COMPLETED:
-                if self._custom_assessment_progress != CUSTOM_ASSESSMENT_WAITING:
-                    candidate = captured_samples[self._custom_assessment_movement_start_index or 0:]
-                    observability = validate_assessment_sequence(
-                        candidate, self._custom_template.required_modalities,
-                        required_hand_sides=self._custom_template.required_hand_sides,
-                        template=self._custom_template,
-                    )
-                    if not observability.valid and any(
-                        code.value in {"missing_modality", "track_loss"}
-                        for code in observability.codes
-                    ):
-                        raise ValueError(next(
-                            code.value for code in observability.codes
-                            if code.value in {"missing_modality", "track_loss"}
-                        ))
-                if self._custom_template.movement_behavior == "static":
-                    raise ValueError(
-                        "custom_position_not_detected"
-                        if self._custom_assessment_progress == CUSTOM_ASSESSMENT_WAITING
-                        else "custom_hold_incomplete"
-                    )
+            completed = self._custom_assessment_progress == CUSTOM_ASSESSMENT_COMPLETED
+            static = self._custom_template.movement_behavior == "static"
+            if not completed and self._custom_assessment_progress != CUSTOM_ASSESSMENT_WAITING:
+                # Lost tracking is a camera/environment failure, not a scored
+                # attempt: reject it so the trainee can retry.
+                candidate = captured_samples[self._custom_assessment_movement_start_index or 0:]
+                observability = validate_assessment_sequence(
+                    candidate, self._custom_template.required_modalities,
+                    required_hand_sides=self._custom_template.required_hand_sides,
+                    template=self._custom_template,
+                )
+                if not observability.valid and any(
+                    code.value in {"missing_modality", "track_loss"}
+                    for code in observability.codes
+                ):
+                    raise ValueError(next(
+                        code.value for code in observability.codes
+                        if code.value in {"missing_modality", "track_loss"}
+                    ))
+            if not completed and static:
                 raise ValueError(
-                    "custom_movement_not_detected"
+                    "custom_position_not_detected"
                     if self._custom_assessment_progress == CUSTOM_ASSESSMENT_WAITING
-                    else "custom_assessment_incomplete"
+                    else "custom_hold_incomplete"
                 )
             start_index = self._custom_assessment_movement_start_index or 0
             samples = captured_samples[start_index:]
-            if self._custom_template.movement_behavior == "static":
+            if static:
                 samples = trailing_hold_window(samples)
             if not samples:
                 raise ValueError("custom_capture_not_recording")
@@ -1409,13 +1414,22 @@ class VisionSession:
                 replace(sample, timestamp_ms=sample.timestamp_ms - start_timestamp)
                 for sample in samples
             )
-            result = compare_custom_movement_sequence(
-                self._custom_template, samples, assessment=True,
-            )
-            if not result.validation.valid:
-                code = result.validation.codes[0].value
-                raise ValueError(code)
+            if completed:
+                result = compare_custom_movement_sequence(
+                    self._custom_template, samples, assessment=True,
+                )
+                if not result.validation.valid:
+                    code = result.validation.codes[0].value
+                    raise ValueError(code)
+            else:
+                # The timer expired before completion was confirmed. Timeout
+                # finishes the attempt; it never marks it completed. Score only
+                # the captured evidence: no detected movement or unusable
+                # evidence scores 0, and a partial attempt is capped below
+                # competent so an incomplete sequence cannot pass.
+                result = self._score_incomplete_custom_assessment(samples)
             payload = result.to_dict()
+            payload["movement_completed"] = completed
             payload["max_total"] = 12
             payload["score_percent"] = round(result.total * 100 / 12, 1)
             payload["assessment_outcome"] = (
@@ -1426,6 +1440,12 @@ class VisionSession:
                 for name, score in result.component_scores.items()
                 if score is not None
             ]
+            if not completed:
+                payload["feedback"].insert(0, (
+                    "Time expired before the full movement was completed."
+                    if self._custom_assessment_progress != CUSTOM_ASSESSMENT_WAITING
+                    else "Time expired before the saved movement was detected."
+                ))
             for name, score in result.component_scores.items():
                 if score is not None and score <= 1:
                     payload["feedback"].append(
@@ -1458,6 +1478,40 @@ class VisionSession:
             return payload
         finally:
             self._release_ai_state()
+
+    def _score_incomplete_custom_assessment(self, samples) -> CustomSequenceComparison:
+        """Score a dynamic attempt whose timer expired before completion."""
+        template = self._custom_template
+        result = compare_custom_movement_sequence(template, samples, assessment=True)
+        if (
+            self._custom_assessment_progress == CUSTOM_ASSESSMENT_WAITING
+            or not result.validation.valid
+        ):
+            # No detected movement, or evidence too incomplete to compare:
+            # every measurable component earns 0. Missing evidence is never
+            # credited as a correct movement.
+            capabilities = template.feature_capabilities
+            modality = {
+                "Body technique": "pose",
+                "Hand technique": "hands",
+                "Prop path": "prop_translation",
+                "Control/stability": "prop_translation",
+            }
+            return replace(
+                result,
+                component_scores={
+                    name: (
+                        0 if name not in modality or capabilities.get(modality[name])
+                        else None
+                    )
+                    for name in result.component_scores
+                },
+                component_confidence={name: 0.0 for name in result.component_confidence},
+                total=0,
+                performance_level=custom_performance_level(0),
+            )
+        total = min(result.total, _CUSTOM_INCOMPLETE_MAX_TOTAL)
+        return replace(result, total=total, performance_level=custom_performance_level(total))
 
     def _record_custom_sample(
         self,
