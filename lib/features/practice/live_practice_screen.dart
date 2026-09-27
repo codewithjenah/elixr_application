@@ -1701,27 +1701,16 @@ class LivePracticeScreenState extends State<LivePracticeScreen> {
                       )
                     : null;
                 final headerSection = assignment == null
-                    ? Container(
-                        key: const ValueKey('endless-mode-header-surface'),
-                        padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
-                        decoration: BoxDecoration(
-                          color: context.elixCardSurface,
-                          borderRadius: BorderRadius.circular(
-                            AppSpacing.practiceSurfaceRadius,
-                          ),
-                          border: Border.all(color: context.elixBorder),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            header,
-                            if (progressionHud != null) ...[
-                              const SizedBox(height: AppSpacing.sm),
-                              progressionHud,
-                            ],
+                    ? Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          header,
+                          if (progressionHud != null) ...[
+                            progressionHud,
+                            const SizedBox(height: AppSpacing.sm),
                           ],
-                        ),
+                        ],
                       )
                     : header;
                 final camera = TrainingCameraWorkspace(

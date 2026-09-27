@@ -1,5 +1,6 @@
 """Evidence-based completion detection for live custom assessments."""
 
+import math
 from dataclasses import dataclass
 from typing import Mapping, Sequence
 
@@ -17,6 +18,8 @@ from .template_engine import (
     _modality_error,
     _rotation_trace,
     _rotation_track_stable,
+    _semantic_hands,
+    _usable,
     compare_sequence,
     final_frames_still,
     motion_thresholds,
@@ -49,7 +52,36 @@ class DynamicMotionEvidence:
     end_error: float | None
     aligned_error: float | None
     phase_progress: float
+    progress: float | None
+    directional: bool
+    reference_travel: float
     complete: bool
+
+
+_MIN_DISPLACEMENT_PROGRESS = 0.6
+
+
+def _same_movement(
+    directional: bool,
+    progress: float | None,
+    end_error: float | None,
+    reference_travel: float,
+    phase_progress: float,
+    tolerance: float,
+) -> bool:
+    """Movement identity from start-anchored displacement.
+
+    A directional movement must travel the same way (reversed or sideways
+    attempts project <= 0) for most of the reference distance. An
+    out-and-back movement has little net travel, so it must reach the final
+    phase and return near its own starting point.
+    """
+    if end_error is None:
+        return False
+    if directional:
+        return (progress is not None and progress >= _MIN_DISPLACEMENT_PROGRESS
+                and end_error <= max(tolerance, 0.5 * reference_travel))
+    return phase_progress >= 0.85 and end_error <= tolerance
 
 
 def _bounded_samples(samples: Sequence[FrameSample]) -> tuple[FrameSample, ...]:
@@ -97,6 +129,59 @@ def _sequence_path_length(
                     total += error
         previous = (index, frame)
     return total
+
+
+def _points(frame: FrameSample, modality: str) -> dict[str, tuple[float, float]]:
+    if modality == "prop_translation":
+        return {"prop": (frame.prop.x, frame.prop.y)} if _usable(frame.prop) else {}
+    points = frame.pose if modality == "pose" else _semantic_hands(frame.hands)
+    return {key: (p.x, p.y) for key, p in points.items() if _usable(p)}
+
+
+def _mean_points(
+    frames: Sequence[dict[str, tuple[float, float]]],
+) -> dict[str, tuple[float, float]]:
+    keys = set.intersection(*(set(frame) for frame in frames))
+    return {
+        key: (sum(f[key][0] for f in frames) / len(frames),
+              sum(f[key][1] for f in frames) / len(frames))
+        for key in keys
+    }
+
+
+def _displacement_match(
+    reference: Sequence[FrameSample],
+    candidate: Sequence[FrameSample],
+    modality: str,
+) -> tuple[float | None, float | None, float]:
+    """Start-anchored net travel compared with the reference's net travel.
+
+    Returns ``(progress, anchored_end_error, reference_travel)``: progress is the candidate's
+    travel projected on the reference direction (1.0 = same net travel,
+    negative = reversed); the error compares displacement vectors, so where
+    the user starts in the frame does not matter, only what they did.
+    """
+    observed = [points for frame in candidate if (points := _points(frame, modality))]
+    learned = [points for frame in reference if (points := _points(frame, modality))]
+    if len(observed) < 2 or len(learned) < 2:
+        return None, None, 0.0
+    # The start is the lead-in observation (averaging would mix in early
+    # motion); the end averages three observations, on both sides alike, so
+    # one jittery final detection cannot flip or inflate the net travel.
+    ref_start, ref_end = learned[0], _mean_points(learned[-3:])
+    cand_start, cand_end = observed[0], _mean_points(observed[-3:])
+    keys = ref_start.keys() & ref_end.keys() & cand_start.keys() & cand_end.keys()
+    if not keys:
+        return None, None, 0.0
+    dot = norm = error = travel = 0.0
+    for key in keys:
+        rx, ry = ref_end[key][0] - ref_start[key][0], ref_end[key][1] - ref_start[key][1]
+        cx, cy = cand_end[key][0] - cand_start[key][0], cand_end[key][1] - cand_start[key][1]
+        dot += rx * cx + ry * cy
+        norm += rx * rx + ry * ry
+        error += math.hypot(rx - cx, ry - cy)
+        travel += math.hypot(rx, ry)
+    return (dot / norm if norm > 0 else None), error / len(keys), travel / len(keys)
 
 
 def _movement_start_index(
@@ -280,11 +365,8 @@ def evaluate_completion(
              if (error := _modality_error(reference[0], frame, modality)) is not None),
             None,
         )
-        end_error = next(
-            (error for frame in reversed(candidate)
-             if candidate[-1].timestamp_ms - frame.timestamp_ms <= 450
-             and (error := _modality_error(reference[-1], frame, modality)) is not None),
-            None,
+        progress, end_error, reference_travel = _displacement_match(
+            reference, candidate, modality,
         )
         alignment = _dtw(reference, candidate, (modality,))
         errors = [
@@ -316,6 +398,10 @@ def evaluate_completion(
         sustained = sequence_motion(candidate, modality) >= max(
             0.6 * thresholds[modality], 0.5 * sequence_motion(reference, modality)
         )
+        # Completion asks "same movement?", not "same spot/size?": identity
+        # is judged on start-anchored net travel, while absolute start/end
+        # placement and amplitude are left to compare_sequence scoring.
+        directional = reference_travel >= 0.5 * expected_range
         evidence.append(DynamicMotionEvidence(
             modality=modality,
             path_ratio=ratio,
@@ -323,11 +409,15 @@ def evaluate_completion(
             end_error=end_error,
             aligned_error=aligned_error,
             phase_progress=phase_progress,
+            progress=progress,
+            directional=directional,
+            reference_travel=reference_travel,
             complete=(ratio >= _MIN_PATH_RATIO
                       and sustained
-                      and phase_progress >= 0.85
-                      and start_error is not None and start_error <= endpoint_tolerance
-                      and end_error is not None and end_error <= endpoint_tolerance
+                      and _same_movement(
+                          directional, progress, end_error, reference_travel,
+                          phase_progress, endpoint_tolerance,
+                      )
                       and aligned_error is not None
                       and aligned_error <= _MAX_ALIGNED_MOTION_ERROR * tolerance_scale),
         ))
@@ -341,10 +431,11 @@ def evaluate_completion(
     )
     if prop_evidence is not None and not (
         prop_evidence.path_ratio >= 0.50
-        and prop_evidence.start_error is not None
-        and prop_evidence.start_error <= prop_endpoint_tolerance
-        and prop_evidence.end_error is not None
-        and prop_evidence.end_error <= prop_endpoint_tolerance
+        and _same_movement(
+            prop_evidence.directional, prop_evidence.progress, prop_evidence.end_error,
+            prop_evidence.reference_travel, prop_evidence.phase_progress,
+            prop_endpoint_tolerance,
+        )
         and prop_evidence.aligned_error is not None
         and prop_evidence.aligned_error <= 0.30 * tolerance_scale
     ):
@@ -398,11 +489,10 @@ def _evaluate_static_completion(
         return POSITION_DETECTED
     if hold[-1].timestamp_ms - hold[0].timestamp_ms < STATIC_HOLD_MS:
         return POSITION_DETECTED
+    # Grip identity is gated by static_frame_matches above (wrist-relative
+    # shape); rubric totals and Hand technique also grade absolute hand/arm
+    # placement, so they score the hold rather than decide completion.
     comparison = compare_sequence(template, hold, assessment=True)
-    if comparison.total < 7:
-        return POSITION_DETECTED
-    if template.feature_capabilities.get("hands") and (comparison.component_scores["Hand technique"] or 0) < 2:
-        return POSITION_DETECTED
     # Grip/hand geometry is the primary static evidence; the prop only needs
     # presence and broad placement (enforced by static_frame_matches and
     # validation above), so ordinary YOLO jitter cannot block completion.

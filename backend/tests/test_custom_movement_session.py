@@ -579,14 +579,16 @@ def test_custom_assessment_uses_observed_motion_quorum_for_noisy_pose():
     assert evaluate_completion(template, prop_only) == MOVEMENT_COMPLETED
 
 
-def test_dynamic_completion_rejects_reverse_trajectory_and_near_final_partial():
+def test_dynamic_completion_rejects_reverse_trajectory_and_half_partial():
     template = _template()
     reference = _reference()
     reverse = tuple(replace(frame, prop=reference[-1 - index].prop)
                     for index, frame in enumerate(reference))
-    near_final = reference[:8]
+    # A shorter-but-recognizable execution (e.g. ~80% of the travel) may
+    # complete and is graded by scoring; stopping near halfway may not.
+    half = reference[:5]
     assert evaluate_completion(template, reverse) == MOVEMENT_DETECTED
-    assert evaluate_completion(template, near_final) == MOVEMENT_DETECTED
+    assert evaluate_completion(template, half) == MOVEMENT_DETECTED
 
 
 def test_dynamic_completion_tolerates_fast_execution_and_short_detector_losses():

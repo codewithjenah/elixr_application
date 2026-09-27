@@ -20,6 +20,7 @@ from assessment.custom_movement.template_engine import (
     MIN_REFERENCE_DURATION_MS,
     ReferenceQualityError,
     check_reference_integrity,
+    compare_sequence,
 )
 from api import websocket as websocket_api
 from schemas.protocol import CommandAck
@@ -173,6 +174,15 @@ def test_static_assessment_accepts_position_offset_jitter_and_short_gaps(static_
     assert evaluate_completion(static_template, _grip(hand_miss={7})) == MOVEMENT_COMPLETED
 
 
+def test_static_same_grip_with_arm_offset_completes_with_lower_score(static_template):
+    # Same wrist-relative grip, hand placed 0.15 shoulder widths away.
+    offset = _grip(hand_dx=0.06, prop_jitter=0.01)
+    assert evaluate_completion(static_template, offset) == MOVEMENT_COMPLETED
+    exact = compare_sequence(static_template, _grip(), assessment=True).total
+    assert compare_sequence(static_template, offset, assessment=True).total < exact
+    assert evaluate_completion(static_template, _grip(hand_dx=0.06, tip=0.47)) != MOVEMENT_COMPLETED
+
+
 def test_static_assessment_rejects_wrong_grip_missing_prop_and_motion(static_template):
     assert evaluate_completion(static_template, _grip(tip=0.41)) != MOVEMENT_COMPLETED
     assert evaluate_completion(static_template, _grip(prop=False)) != MOVEMENT_COMPLETED
@@ -201,6 +211,31 @@ def test_small_dynamic_movements_build_and_complete(kwargs):
         replace(_dynamic(**kwargs)[5], timestamp_ms=index * 100) for index in range(6, 12)
     )
     assert evaluate_completion(template, halfway) != MOVEMENT_COMPLETED
+
+
+def _offset(samples, dx):
+    """Shift arms, hands and prop sideways; shoulders (the anchor) stay put."""
+    move = lambda p: Landmark(p.x + dx, p.y)  # noqa: E731
+    return tuple(replace(
+        frame,
+        pose={k: (p if k in ("11", "12") else move(p)) for k, p in frame.pose.items()},
+        hands={k: move(p) for k, p in frame.hands.items()},
+        prop=move(frame.prop) if frame.prop else None,
+    ) for frame in samples)
+
+
+@pytest.mark.parametrize("step", ({"prop_step": 0.006}, {"tip_step": 0.004}))
+def test_recognizable_near_match_completes_but_scores_below_close_match(step):
+    template = build_template([_dynamic(**step), _dynamic(count=10, interval=120, **step)])
+    smaller = {key: value * 0.65 for key, value in step.items()}
+    near = _offset(_dynamic(noise=0.004, **smaller), 0.04)
+    assert evaluate_completion(template, near) == MOVEMENT_COMPLETED
+    close = compare_sequence(template, _dynamic(**step), assessment=True)
+    assert compare_sequence(template, near, assessment=True).total < close.total
+    reversed_ = {key: -value for key, value in step.items()}
+    assert evaluate_completion(template, _dynamic(**reversed_)) != MOVEMENT_COMPLETED
+    too_small = {key: value * 0.3 for key, value in step.items()}
+    assert evaluate_completion(template, _dynamic(**too_small)) != MOVEMENT_COMPLETED
 
 
 def test_small_dynamic_movement_tolerates_path_noise_and_short_prop_loss():
