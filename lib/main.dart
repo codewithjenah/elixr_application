@@ -10,13 +10,20 @@ import 'app.dart';
 import 'services/backend_service.dart';
 import 'services/error_log_service.dart';
 
-/// Public client configuration, supplied at build time with
-/// `--dart-define=SUPABASE_URL=...` and
+/// Public client configuration. Defaults to ELIXR's production project; a
+/// build may override either value with `--dart-define=SUPABASE_URL=...` and
 /// `--dart-define=SUPABASE_PUBLISHABLE_KEY=...`. Only the project URL and the
 /// publishable (RLS-bound) key belong in the client; never a secret key.
-const _supabaseUrl = String.fromEnvironment('SUPABASE_URL');
+const _defaultSupabaseUrl = 'https://uobufdulmmkpyavjghwg.supabase.co';
+const _defaultSupabasePublishableKey =
+    'sb_publishable_v6gfUhU_3pducoT-4H4hHw_7TDePfGo';
+const _supabaseUrl = String.fromEnvironment(
+  'SUPABASE_URL',
+  defaultValue: _defaultSupabaseUrl,
+);
 const _supabasePublishableKey = String.fromEnvironment(
   'SUPABASE_PUBLISHABLE_KEY',
+  defaultValue: _defaultSupabasePublishableKey,
 );
 
 Future<void> main() async {

@@ -6,7 +6,7 @@ alwaysApply: false
 # Supabase and persisted data
 
 - The Supabase Auth user ID (`auth.uid()`) is the user identity. Legacy Firebase UIDs are mapped only through `legacy_firebase_identities`; never assume they equal Supabase UUIDs.
-- The client gets only `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` (`--dart-define`). Secret/service-role keys live only in the `elixr-admin` Edge Function environment.
+- The client gets only `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` (production defaults in `lib/main.dart`, overridable via `--dart-define`). Secret/service-role keys live only in the `elixr-admin` Edge Function environment.
 - Keep data access behind repositories. Privileged or multi-row writes go through security-definer RPCs (`set search_path = ''`) that authorize with `auth.uid()`, never user metadata. Private helpers stay in the `private` schema and are not granted as APIs.
 - Every table has RLS enabled; there are no allow-all policies. Clients mostly get SELECT only; writes are RPCs.
 - RPC failures raise stable codes via `private.fail(code)` (message = code). Map them in Dart; never show raw backend text.

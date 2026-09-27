@@ -186,15 +186,19 @@ The current implementation does not rely on an automatic YOLO model download dur
    `legacy_firebase_identities`; a Firebase UID is never assumed to equal a
    Supabase user ID.
 
-The client receives only the public project URL and publishable key at build
-time. The app refuses to start (with an in-app message) when they are missing
-or when a secret key is supplied:
+The client receives only the public project URL and publishable (RLS-bound)
+key. `lib/main.dart` defaults to ELIXR's production project, so a fresh clone
+needs only `flutter run -d windows`. To target another project (for example a
+local Supabase stack), override either value at build time:
 
 ```powershell
 flutter run -d windows `
   --dart-define=SUPABASE_URL=https://<project-ref>.supabase.co `
   --dart-define=SUPABASE_PUBLISHABLE_KEY=<publishable-key>
 ```
+
+The app refuses to start (with an in-app message) when a value is empty or
+invalid, or when a secret/service-role key is supplied.
 
 Never commit Supabase secret/service-role keys, OAuth client secrets, private credentials, or local secret files.
 
@@ -245,11 +249,11 @@ fallback when no packaged backend sidecar is present.
 ### Terminal 2 — Flutter client
 
 ```powershell
-flutter run -d windows --dart-define=SUPABASE_URL=... --dart-define=SUPABASE_PUBLISHABLE_KEY=...
+flutter run -d windows
 ```
 
-The pilot build script reads the same values from the `SUPABASE_URL` and
-`SUPABASE_PUBLISHABLE_KEY` environment variables.
+The pilot build script uses the same production defaults; optional
+`SUPABASE_URL` / `SUPABASE_PUBLISHABLE_KEY` environment variables override them.
 
 The Flutter client connects to:
 

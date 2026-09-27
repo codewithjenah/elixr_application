@@ -95,17 +95,21 @@ New-Item -ItemType Directory -Path $backendDist -Force | Out-Null
 New-Item -ItemType Directory -Path $backendWork -Force | Out-Null
 
 # Only the public project URL and publishable key are compiled into the client.
-if ([string]::IsNullOrWhiteSpace($env:SUPABASE_URL) -or [string]::IsNullOrWhiteSpace($env:SUPABASE_PUBLISHABLE_KEY)) {
-    throw "Set SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY before building the pilot."
+# lib/main.dart defaults to ELIXR's production project; SUPABASE_URL and
+# SUPABASE_PUBLISHABLE_KEY environment variables are optional overrides.
+$flutterDefines = @()
+if (-not [string]::IsNullOrWhiteSpace($env:SUPABASE_URL)) {
+    $flutterDefines += "--dart-define=SUPABASE_URL=$env:SUPABASE_URL"
 }
-if ($env:SUPABASE_PUBLISHABLE_KEY.StartsWith("sb_secret_")) {
-    throw "SUPABASE_PUBLISHABLE_KEY must be the publishable key, never a secret key."
+if (-not [string]::IsNullOrWhiteSpace($env:SUPABASE_PUBLISHABLE_KEY)) {
+    if ($env:SUPABASE_PUBLISHABLE_KEY.StartsWith("sb_secret_")) {
+        throw "SUPABASE_PUBLISHABLE_KEY must be the publishable key, never a secret key."
+    }
+    $flutterDefines += "--dart-define=SUPABASE_PUBLISHABLE_KEY=$env:SUPABASE_PUBLISHABLE_KEY"
 }
 
 Write-Host "Building Flutter Windows release..."
-& $flutterCommand.Path build windows --release `
-    "--dart-define=SUPABASE_URL=$env:SUPABASE_URL" `
-    "--dart-define=SUPABASE_PUBLISHABLE_KEY=$env:SUPABASE_PUBLISHABLE_KEY"
+& $flutterCommand.Path build windows --release @flutterDefines
 if ($LASTEXITCODE -ne 0) {
     throw "Flutter Windows release build failed."
 }

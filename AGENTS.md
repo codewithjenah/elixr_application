@@ -49,7 +49,7 @@ Do not infer current requirements from deleted, stale, or aspirational planning 
 
 - Supabase Auth owns user identity (email confirmation required; Google via loopback PKCE).
 - Supabase Postgres stores user profiles, sessions, feedback, classroom data, and leaderboard aggregates; private Storage buckets hold media.
-- The Flutter client receives only `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` via `--dart-define`; secret/service-role keys never ship in the client.
+- The Flutter client receives only `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` (production defaults in `lib/main.dart`, overridable via `--dart-define`); secret/service-role keys never ship in the client.
 - The FastAPI WebSocket is local runtime communication, not persistent storage.
 
 ## Non-negotiable invariants
