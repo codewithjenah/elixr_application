@@ -1783,6 +1783,19 @@ void main() {
       expect(text, isNot(contains('too short')));
     });
 
+    test('static hold with enough total samples reports its tracked span', () {
+      final text = message('insufficient_tracking_samples', {
+        'sample_count': 6,
+        'required_sample_count': 6,
+        'hold_sample_count': 6,
+        'required_hold_sample_count': 4,
+        'hold_duration_ms': 500,
+      }, behavior: 'static')!;
+      expect(text, contains('final hold was tracked for only 0.5 s'));
+      expect(text, contains('0.8 s'));
+      expect(text, isNot(contains('captured only 6')));
+    });
+
     test('coverage, gap, motion, and trim codes are specific', () {
       expect(
         message('insufficient_prop_coverage', {'prop_coverage': 0.4}),
@@ -1791,6 +1804,14 @@ void main() {
       expect(
         message('insufficient_hand_coverage', {'hand_coverage': 0.5}),
         contains('Your hand was tracked in only 50%'),
+      );
+      expect(
+        message('insufficient_hand_coverage', {
+          'hand_side': 'right',
+          'hand_coverage': 0.3,
+          'left_hand_coverage': 1.0,
+        }),
+        contains('Your right hand was tracked in only 30%'),
       );
       expect(
         message('excessive_tracking_gap', {'longest_tracking_gap_ms': 1000}),

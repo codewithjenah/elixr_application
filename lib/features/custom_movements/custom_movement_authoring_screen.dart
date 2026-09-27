@@ -85,22 +85,48 @@ String? customReferenceIssueMessage(
   final duration = number('duration_ms');
   final samples = number('sample_count');
   final requiredSamples = number('required_sample_count');
+  final holdSamples = number('hold_sample_count');
+  final requiredHoldSamples = number('required_hold_sample_count');
+  final holdDuration = number('hold_duration_ms');
   final gap = number('longest_tracking_gap_ms');
+  final handSide =
+      values['hand_side'] == 'left' || values['hand_side'] == 'right'
+      ? values['hand_side'] as String
+      : null;
   final message = switch (code) {
     'reference_duration_too_short' =>
       '${duration == null ? '' : 'This clip is ${seconds(duration)} s. '}'
           'Record at least ${seconds(MovementTemplate.minimumReferenceDuration.inMilliseconds)} second$holdHint.',
     'insufficient_tracking_samples' =>
-      'Your clip is long enough, but ELIXR captured only '
-          '${samples?.toInt() ?? 'a few'} usable tracking samples'
-          '${requiredSamples == null ? '' : ' (needs ${requiredSamples.toInt()})'}. '
-          'Keep your hand and $prop visible and try again.',
+      isStatic &&
+              samples != null &&
+              requiredSamples != null &&
+              samples >= requiredSamples &&
+              holdDuration != null &&
+              holdDuration < MovementTemplate.staticHoldDuration.inMilliseconds
+          ? 'The final hold was tracked for only ${seconds(holdDuration)} s. '
+                'Keep the position steady for at least $holdSeconds s before stopping.'
+          : isStatic &&
+                samples != null &&
+                requiredSamples != null &&
+                samples >= requiredSamples &&
+                holdSamples != null &&
+                requiredHoldSamples != null &&
+                holdSamples < requiredHoldSamples
+          ? 'The final hold had only ${holdSamples.toInt()} tracked samples '
+                '(needs ${requiredHoldSamples.toInt()}). Keep your hand and $prop '
+                'visible during the $holdSeconds s hold.'
+          : 'Your clip is long enough, but ELIXR captured only '
+                '${samples?.toInt() ?? 'a few'} usable tracking samples'
+                '${requiredSamples == null ? '' : ' (needs ${requiredSamples.toInt()})'}. '
+                'Keep your hand and $prop visible and try again.',
     'insufficient_prop_coverage' =>
       'The $prop was visible in only ${percent('prop_coverage', 'part')} '
           'of the clip. Keep it in view the whole time and try again.',
     'insufficient_hand_coverage' =>
-      'Your hand was tracked in only ${percent('hand_coverage', 'part')} '
-          'of the clip. Keep at least one hand clearly visible throughout.',
+      'Your ${handSide == null ? '' : '$handSide '}hand was tracked in only '
+          '${percent('hand_coverage', 'part')} of the clip. '
+          'Keep ${handSide == null ? 'at least one hand' : 'that hand'} clearly visible throughout.',
     'excessive_tracking_gap' =>
       'Tracking was lost for ${gap == null ? 'too long' : '${seconds(gap)} s'} '
           'in a row. Keep your hand, body, and $prop visible throughout.',

@@ -721,7 +721,11 @@ registry:
   and, like `build_custom_template` rejections (`no_meaningful_motion`,
   `inconsistent_dynamic_references`, `unstable_static_reference`,
   `invalid_reference_count`, ...), carry measured and required values in the
-  ack's `reference_quality`. `trim_custom_reference`
+  ack's `reference_quality`. `sample_count` and `required_sample_count`
+  describe the full clip (six samples minimum). Static build rejections also
+  report `hold_sample_count`, `required_hold_sample_count` (four minimum), and
+  `hold_duration_ms` for the ending hold. When one hand side is the weak input,
+  `hand_side` and `hand_coverage` describe that side. `trim_custom_reference`
   selects a non-destructive time range and validates the retained samples;
   `delete_custom_reference` removes an arbitrary draft by ID and its temp clip.
   A confirmed second person invalidates the current reference with

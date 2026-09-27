@@ -125,6 +125,7 @@ from vision.prop_inference import (
 )
 from assessment.custom_movement.template_engine import (
     FailureCode as CustomFailureCode,
+    MIN_STATIC_HOLD_SAMPLES,
     PropEventTracker,
     ReferenceQualityError,
     check_reference_integrity,
@@ -1121,6 +1122,15 @@ class VisionSession:
         self._acquire_ai_state(blocking=True)
         try:
             samples = tuple(self._custom_samples or ())
+            if (self._is_custom_assessment and self._custom_template is not None
+                    and self._custom_template.movement_behavior == "static"
+                    and self._custom_assessment_progress != CUSTOM_ASSESSMENT_COMPLETED
+                    and samples):
+                # A low-cadence final observation can complete the 800 ms hold
+                # after the periodic live evaluation, just before Stop.
+                self._custom_assessment_progress = evaluate_custom_assessment_completion(
+                    self._custom_template, samples,
+                )
             sample_times = tuple(self._custom_sample_capture_times)
             self._custom_sample_capture_times = []
             with self._custom_video_lock:
@@ -3582,15 +3592,26 @@ class VisionSession:
                 self._custom_sample_capture_times.pop(0)
         self._custom_target_sample_count += 1
         # A partial path can score highly before the demonstrated action ends.
-        if (len(samples) < 8 or
+        static = template.movement_behavior == "static"
+        static_low_cadence = (
+            static and len(samples) >= 2
+            and samples[-1].timestamp_ms - samples[-2].timestamp_ms >= 100
+        )
+        if (len(samples) < (MIN_STATIC_HOLD_SAMPLES if static else 8) or
                 samples[-1].timestamp_ms - samples[0].timestamp_ms < template.duration_ms * 0.75 or
-                self._custom_target_sample_count % 4 != 0):
+                (self._custom_target_sample_count % 4 != 0 and not static_low_cadence)):
+            return None
+        if static and evaluate_custom_assessment_completion(template, tuple(samples)) != CUSTOM_ASSESSMENT_COMPLETED:
             return None
         if template.feature_capabilities.get("release_catch"):
             observed_phases = {event.kind for event in detect_prop_events(samples)}
             if not {"release", "airborne", "catch"}.issubset(observed_phases):
                 return None
-        comparison = compare_custom_movement_sequence(template, tuple(samples))
+        comparison = (
+            compare_custom_movement_sequence(
+                template, trailing_hold_window(samples), assessment=True,
+            ) if static else compare_custom_movement_sequence(template, tuple(samples))
+        )
         # Competent (7..9), proficient (10..11), mastered (12) are the
         # custom engine's existing rubric levels. Validation must also pass.
         if not comparison.validation.valid or comparison.total < 7:

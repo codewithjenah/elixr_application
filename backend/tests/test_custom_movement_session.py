@@ -395,6 +395,24 @@ def test_static_assessment_scores_only_completed_hold_after_neutral_entry():
     session.close()
 
 
+def test_static_assessment_checks_final_five_hz_sample_when_capture_stops():
+    reference = _grip_reference()
+    template = build_template([reference], movement_behavior="static")
+    session = websocket_api.VisionSession(
+        "Normal Grip", session_mode="custom_assessment",
+        custom_movement_template=template.to_dict(),
+    )
+    final = reference[-1]
+    session._custom_samples = [
+        replace(final, timestamp_ms=index * 200) for index in range(6)
+    ]
+    session._custom_assessment_progress = WAITING_FOR_MOVEMENT
+    accepted, code, _ = session.stop_custom_capture()
+    assert (accepted, code) == (True, None)
+    assert session.finish_custom_assessment()["assessment_outcome"] == "competent"
+    session.close()
+
+
 def test_static_hold_completes_at_thirty_fps_without_timestamp_alignment():
     final = _grip_reference()[-1]
     hold = tuple(replace(final, timestamp_ms=index * 33) for index in range(40))
@@ -1183,6 +1201,28 @@ def test_endless_custom_sequence_uses_template_comparison_once():
     assert events[0].revision_id == "revision-1"
     assert session._evaluate_endless_custom_samples(12) is None
     assert session.drain_recognition_events() == []
+    session.close()
+
+
+def test_endless_custom_static_hold_recognizes_seven_samples_at_five_hz():
+    reference = _grip_reference()
+    template = build_template([reference], movement_behavior="static")
+    session = websocket_api.VisionSession(
+        "Free Practice", session_mode="endless", prop_type="bottle_and_shaker",
+        endless_selected_prop="bottle", session_id="static-hold",
+    )
+    session._lifecycle = websocket_api.SESSION_ACTIVE
+    assert session.set_endless_target(
+        "custom_movement", "My Grip", "bottle", 1,
+        "custom-static", "revision-1", template.to_dict(),
+    ) == (True, None)
+    final = reference[-1]
+    session._custom_samples = [
+        replace(final, timestamp_ms=index * 200) for index in range(7)
+    ]
+    session._custom_target_sample_count = 0
+    assert session._evaluate_endless_custom_samples(11) in {"perfect", "great", "nice"}
+    assert len(session.drain_recognition_events()) == 1
     session.close()
 
 

@@ -1,9 +1,13 @@
 """Evidence-based completion detection for live custom assessments."""
 
 from dataclasses import dataclass
-from typing import Sequence
+from typing import Mapping, Sequence
 
 from .template_engine import (
+    MAX_REFERENCE_ROTATION_SPREAD_RAD,
+    MIN_ROTATION_AMOUNT_RAD,
+    MIN_ROTATION_COVERAGE,
+    MIN_ROTATION_PAIR_COVERAGE,
     MIN_STATIC_HOLD_SAMPLES,
     MIN_TRACKING_SAMPLES,
     STATIC_HOLD_MS,
@@ -11,6 +15,8 @@ from .template_engine import (
     MovementTemplate,
     _dtw,
     _modality_error,
+    _rotation_trace,
+    _rotation_track_stable,
     compare_sequence,
     final_frames_still,
     motion_thresholds,
@@ -94,7 +100,7 @@ def _sequence_path_length(
 
 def _movement_start_index(
     normalized: Sequence[FrameSample],
-    moving_modalities: Sequence[str],
+    moving_thresholds: Mapping[str, float],
 ) -> int | None:
     baselines = {
         modality: next(
@@ -102,14 +108,17 @@ def _movement_start_index(
              if _modality_error(frame, frame, modality) is not None),
             None,
         )
-        for modality in moving_modalities
+        for modality in moving_thresholds
     }
     for index, frame in enumerate(normalized[1:], start=1):
         for modality, baseline in baselines.items():
             if baseline is None or baseline >= index:
                 continue
             distance = _modality_error(normalized[baseline], frame, modality)
-            if distance is not None and distance >= 0.03:
+            # Start evidence may appear before full meaningful motion. The
+            # later sustained-displacement gate still rejects detector jitter.
+            start_threshold = min(0.03, moving_thresholds[modality] * 0.5)
+            if distance is not None and distance >= start_threshold:
                 return max(baseline, index - 3)
     return None
 
@@ -152,7 +161,7 @@ def find_movement_start_index(
         use_pose_anchor="pose" in required,
         required_hand_sides=template.required_hand_sides,
     )
-    return _movement_start_index(normalized, list(_moving_thresholds(template)))
+    return _movement_start_index(normalized, _moving_thresholds(template))
 
 
 def estimate_sequence_progress(
@@ -202,13 +211,28 @@ def evaluate_completion(
     thresholds = _moving_thresholds(template)
     moving_modalities = list(thresholds)
     if not moving_modalities:
+        if template.rotation_trace is not None:
+            trace = _rotation_trace(bounded)
+            if abs(trace.total_signed_rad) < MIN_ROTATION_AMOUNT_RAD:
+                return WAITING_FOR_MOVEMENT
+            validation = validate_assessment_sequence(
+                bounded, required, required_hand_sides=template.required_hand_sides,
+                template=template,
+            )
+            if (validation.valid and _rotation_track_stable(bounded)
+                    and trace.coverage >= MIN_ROTATION_COVERAGE
+                    and trace.pair_coverage >= MIN_ROTATION_PAIR_COVERAGE
+                    and abs(trace.total_signed_rad - template.rotation_trace.total_signed_rad)
+                    <= MAX_REFERENCE_ROTATION_SPREAD_RAD):
+                return MOVEMENT_COMPLETED
+            return MOVEMENT_DETECTED
         return WAITING_FOR_MOVEMENT
     # Tolerances below were tuned in shoulder widths; widen (never tighten)
     # them for hand-anchored templates whose units are much smaller.
     tolerance_scale = max(1.0, _motion_unit(template) or 1.0)
 
     # Retain a short lead-in from the user's start position for comparison.
-    movement_start = _movement_start_index(normalized, moving_modalities)
+    movement_start = _movement_start_index(normalized, thresholds)
     if movement_start is None:
         return WAITING_FOR_MOVEMENT
 

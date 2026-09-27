@@ -17,6 +17,7 @@ from assessment.custom_movement.template_engine import (
     compare_sequence,
     validate_sequence,
 )
+from assessment.custom_movement.completion import MOVEMENT_COMPLETED, evaluate_completion
 from vision.bottle_orientation import BottleKeypoint, BottleOrientation
 from vision.bottle_orientation_detector import (
     BottleOrientationDetector, _parse_pose_rows, validated_orientation_asset,
@@ -180,6 +181,22 @@ def _sequence(turns: float, *, gap=(), track_change=None, count=41):
             orientation=None if index in gap else _observation(angle),
         ))
     return tuple(result)
+
+
+def test_rotation_only_dynamic_template_completes_from_observed_turn():
+    centered = tuple(replace(sample, prop=Landmark(0.5, 0.5)) for sample in _sequence(1))
+    template = build_template([centered, centered])
+    assert template.feature_capabilities["prop_rotation"] is True
+    assert evaluate_completion(template, centered) == MOVEMENT_COMPLETED
+    assert evaluate_completion(template, tuple(
+        replace(sample, timestamp_ms=index * 100)
+        for index, sample in enumerate(centered)
+    )) == MOVEMENT_COMPLETED
+    assert evaluate_completion(template, centered[:20]) != MOVEMENT_COMPLETED
+    stationary = tuple(replace(sample, prop=Landmark(0.5, 0.5)) for sample in _sequence(0))
+    assert evaluate_completion(template, stationary) != MOVEMENT_COMPLETED
+    reversed_spin = tuple(replace(sample, prop=Landmark(0.5, 0.5)) for sample in _sequence(-1))
+    assert evaluate_completion(template, reversed_spin) != MOVEMENT_COMPLETED
 
 
 def test_directed_axis_requires_both_confident_keypoints():

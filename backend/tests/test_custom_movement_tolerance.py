@@ -134,6 +134,17 @@ def test_static_reference_requires_the_prop_and_the_hand():
     assert hand.value.details["reference_index"] == 0
 
 
+def test_partial_second_hand_reports_the_hand_that_needs_tracking():
+    reference = tuple(replace(frame, hands={
+        **frame.hands,
+        **({"right:0:0": Landmark(0.6, 0.5)} if index < 5 else {}),
+    }) for index, frame in enumerate(_grip()))
+    with pytest.raises(ReferenceQualityError, match="insufficient_hand_coverage") as error:
+        build_template([reference], movement_behavior="static")
+    assert error.value.details["hand_side"] == "right"
+    assert error.value.details["hand_coverage"] == pytest.approx(0.3, abs=0.001)
+
+
 def test_static_reference_rejects_a_moving_final_position():
     with pytest.raises(ReferenceQualityError, match="unstable_static_reference"):
         build_template([_grip(drift=0.02)], movement_behavior="static")
@@ -142,6 +153,10 @@ def test_static_reference_rejects_a_moving_final_position():
 def test_static_reference_needs_enough_hold_samples_not_a_second_example():
     with pytest.raises(ReferenceQualityError, match="insufficient_tracking_samples") as short:
         build_template([_grip(count=6)], movement_behavior="static")  # 500 ms span
+    assert short.value.details["required_sample_count"] == 6
+    assert short.value.details["hold_sample_count"] == 6
+    assert short.value.details["hold_duration_ms"] == 500
+    assert short.value.details["required_hold_sample_count"] == 4
     assert short.value.details["required_hold_ms"] == 800
 
 
@@ -195,6 +210,17 @@ def test_small_dynamic_movement_tolerates_path_noise_and_short_prop_loss():
     assert evaluate_completion(
         template, _dynamic(prop_step=0.006, prop_miss={5}),
     ) == MOVEMENT_COMPLETED
+
+
+def test_small_prop_only_movement_uses_learned_units_to_find_its_start():
+    moving = tuple(FrameSample(
+        index * 100, prop=Landmark(0.4 + 0.003 * index, 0.5),
+        prop_metadata={"track_id": 1},
+    ) for index in range(12))
+    template = build_template([moving, moving])
+    assert evaluate_completion(template, moving) == MOVEMENT_COMPLETED
+    stationary = tuple(replace(sample, prop=Landmark(0.4, 0.5)) for sample in moving)
+    assert evaluate_completion(template, stationary) != MOVEMENT_COMPLETED
 
 
 def test_toss_release_catch_builds_from_two_references():

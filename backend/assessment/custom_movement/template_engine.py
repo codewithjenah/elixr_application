@@ -486,12 +486,16 @@ def reference_quality(
     left = _coverage(samples, "hands", hand_side="left")[0]
     right = _coverage(samples, "hands", hand_side="right")[0]
     static = movement_behavior == "static"
+    hold = trailing_hold_window(samples) if static else ()
     return {
         "duration_ms": clip_duration_ms if clip_duration_ms is not None else span,
         "required_duration_ms": MIN_REFERENCE_DURATION_MS,
         "sample_duration_ms": span,
         "sample_count": len(samples),
-        "required_sample_count": MIN_STATIC_HOLD_SAMPLES if static else MIN_TRACKING_SAMPLES,
+        "required_sample_count": MIN_TRACKING_SAMPLES,
+        "hold_sample_count": len(hold) if static else None,
+        "required_hold_sample_count": MIN_STATIC_HOLD_SAMPLES if static else None,
+        "hold_duration_ms": hold[-1].timestamp_ms - hold[0].timestamp_ms if hold else None,
         "hand_coverage": round(max(left, right), 3),
         "left_hand_coverage": round(left, 3),
         "right_hand_coverage": round(right, 3),
@@ -1198,10 +1202,14 @@ def _validate_reference(
     )
     for modality, side in checks:
         if _coverage(reference, modality, hand_side=side)[0] < MIN_COVERAGE:
+            details = quality
+            if modality == "hands" and side is not None:
+                details = {**quality, "hand_side": side,
+                           "hand_coverage": round(_coverage(reference, modality, hand_side=side)[0], 3)}
             raise ReferenceQualityError(
                 FailureCode.INSUFFICIENT_HAND_COVERAGE if modality == "hands"
                 else FailureCode.MISSING_MODALITY,
-                quality,
+                details,
             )
         gap = _longest_gap_ms(reference, _presence(reference, modality, hand_side=side))
         if gap > REFERENCE_MAX_GAP_MS:
@@ -1313,14 +1321,23 @@ def build_template(
     # Capture readiness guarantees a hand at the start, but intermittent
     # tracking must not turn a hand-led demonstration into a path-only model.
     # A single reliable side is enough; never impose a two-hand requirement.
-    def weakest_hand(index: int | None = None) -> dict[str, Any]:
+    def weakest_hand(index: int | None = None, side: str | None = None) -> dict[str, Any]:
         chosen = index if index is not None else min(
             range(len(references)),
-            key=lambda i: max(_coverage(references[i], "hands", hand_side=side)[0]
-                              for side in ("left", "right")),
+            key=lambda i: (
+                _coverage(references[i], "hands", hand_side=side)[0]
+                if side is not None else
+                max(_coverage(references[i], "hands", hand_side=candidate)[0]
+                    for candidate in ("left", "right"))
+            ),
         )
-        return {**reference_quality(references[chosen], movement_behavior=movement_behavior),
-                "reference_index": chosen}
+        quality = reference_quality(references[chosen], movement_behavior=movement_behavior)
+        if side is not None:
+            quality["hand_side"] = side
+            quality["hand_coverage"] = round(
+                _coverage(references[chosen], "hands", hand_side=side)[0], 3,
+            )
+        return {**quality, "reference_index": chosen}
 
     if not hand_sides and (
         (required_modalities is not None and "hands" in required_modalities)
@@ -1338,7 +1355,7 @@ def build_template(
             _coverage(reference, "hands", hand_side=side)[0] >= 0.30
             for reference in references
         ):
-            raise ReferenceQualityError(FailureCode.INSUFFICIENT_HAND_COVERAGE, weakest_hand())
+            raise ReferenceQualityError(FailureCode.INSUFFICIENT_HAND_COVERAGE, weakest_hand(side=side))
     for index, reference in enumerate(references):
         _validate_reference(
             reference, required, hand_sides, index=index, movement_behavior=movement_behavior,
