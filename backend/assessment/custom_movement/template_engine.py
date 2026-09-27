@@ -28,6 +28,12 @@ STATIC_HAND_KEYPOINT_TOLERANCE = 0.15
 STATIC_HAND_POSITION_TOLERANCE = 0.20
 STATIC_POSE_TOLERANCE = 0.20
 STATIC_PROP_TOLERANCE = 0.25
+# A static reference is hand-led when a well-tracked hand touches the learned
+# prop box (expanded by this many palm lengths). Its grip and hand-to-prop
+# relation are then compared in a wrist-local frame, so arm/body geometry is
+# observed but never vetoes a correct grip. Otherwise pose stays technique.
+STATIC_GRIP_MIN_HAND_KEYPOINTS = 5
+STATIC_GRIP_CONTACT_MARGIN = 0.5
 CAPTURE_VERSION = 1
 CANONICAL_FRAMES = 32
 MIN_FRAMES = 8
@@ -1653,6 +1659,64 @@ def _modality_error(a: FrameSample, b: FrameSample, modality: str) -> float | No
     return sum(usable) / len(usable) if usable else None
 
 
+def static_grip_side(
+    target: FrameSample, required_modalities: Sequence[str]
+) -> str | None:
+    """The hand side whose learned grip holds the prop, when the reference shows it.
+
+    Derived only from the observed target geometry: a hand with enough
+    keypoints (including its wrist) lying on the prop box. A prop resting on
+    the forearm, elbow, or shoulder is away from the hand, so such body-
+    supported holds keep pose as technique evidence.
+    """
+    if not {"hands", "pose", "prop_translation"}.issubset(required_modalities):
+        return None
+    prop = target.prop
+    width = target.prop_metadata.get("bbox_width")
+    height = target.prop_metadata.get("bbox_height")
+    if (not _usable(prop) or not all(
+            isinstance(v, (int, float)) and not isinstance(v, bool)
+            and math.isfinite(float(v)) and v > 0 for v in (width, height))):
+        return None
+    assert prop is not None
+    hands = _semantic_hands(target.hands)
+    for side in ("left", "right"):
+        points = [p for k, p in hands.items() if _hand_side(k) == side and _usable(p)]
+        wrist, middle = hands.get(f"{side}:0"), hands.get(f"{side}:9")
+        if not _usable(wrist) or len(points) < STATIC_GRIP_MIN_HAND_KEYPOINTS:
+            continue
+        palm = _point_distance(wrist, middle) or 0.0
+        margin = STATIC_GRIP_CONTACT_MARGIN * palm
+        if any(abs(p.x - prop.x) <= float(width) / 2 + margin
+               and abs(p.y - prop.y) <= float(height) / 2 + margin for p in points):
+            return side
+    return None
+
+
+def _wrist_local(frame: FrameSample, side: str) -> FrameSample:
+    """Hands and prop relative to one wrist; body pose is dropped."""
+    wrist = frame.hands.get(f"{side}:0")
+    if not _usable(wrist):
+        return FrameSample(frame.timestamp_ms, prop_metadata=frame.prop_metadata)
+    assert wrist is not None
+    shift = lambda p: Landmark(p.x - wrist.x, p.y - wrist.y, p.confidence)  # noqa: E731
+    return FrameSample(
+        timestamp_ms=frame.timestamp_ms,
+        hands={k: shift(p) for k, p in frame.hands.items() if _usable(p)},
+        prop=shift(frame.prop) if _usable(frame.prop) else None,
+        prop_metadata=frame.prop_metadata,
+    )
+
+
+def static_match_modalities(
+    target: FrameSample, required_modalities: Sequence[str]
+) -> tuple[str, ...]:
+    """Modalities that geometrically gate a static hold (pose is observed-only when hand-led)."""
+    if static_grip_side(target, required_modalities) is None:
+        return tuple(required_modalities)
+    return tuple(m for m in required_modalities if m != "pose")
+
+
 def static_frame_matches(
     target: FrameSample, frame: FrameSample, required_modalities: Sequence[str]
 ) -> bool:
@@ -1661,8 +1725,15 @@ def static_frame_matches(
     1. Hand/grip shape is compared relative to each wrist so a slightly
        different hand position cannot hide or fake a different grip.
     2. Arm pose uses only elbows/wrists; face/hip landmarks never gate.
+       A hand-led hold (see :func:`static_grip_side`) is compared in its
+       wrist-local frame instead: grip shape and hand-to-prop placement
+       must match, while arm/body geometry does not gate.
     3. The prop must be present and broadly placed; centre jitter is normal.
     """
+    side = static_grip_side(target, required_modalities)
+    if side is not None:
+        target, frame = _wrist_local(target, side), _wrist_local(frame, side)
+        required_modalities = tuple(m for m in required_modalities if m != "pose")
     for modality in required_modalities:
         if modality == "hands":
             expected = target.hands
@@ -1994,12 +2065,24 @@ def compare_sequence(template: MovementTemplate, samples: Sequence[FrameSample],
         required_hand_sides=template.required_hand_sides,
     )
     path_modalities = [m for m, capable in (("pose", template.feature_capabilities.get("pose")), ("hands", template.feature_capabilities.get("hands")), ("prop_translation", template.feature_capabilities.get("prop_translation"))) if capable]
-    path = _dtw(template.canonical_sequence, candidate, path_modalities)
+    canonical = template.canonical_sequence
+    static = template.movement_behavior == "static"
+    grip_side = (
+        static_grip_side(canonical[-1], template.required_modalities)
+        if static else None
+    )
+    if grip_side is not None:
+        # Score a hand-led hold the way completion matches it: grip and
+        # hand-to-prop placement in the wrist frame; arm pose is not technique.
+        canonical = tuple(_wrist_local(frame, grip_side) for frame in canonical)
+        candidate = tuple(_wrist_local(frame, grip_side) for frame in candidate)
+        path_modalities = [m for m in path_modalities if m != "pose"]
+    path = _dtw(canonical, candidate, path_modalities)
     component_for = {"Body technique": "pose", "Hand technique": "hands", "Prop path": "prop_translation"}
     for name, modality in component_for.items():
         if modality not in path_modalities:
             continue
-        errors = [_modality_error(template.canonical_sequence[i], candidate[j], modality) for i, j in path]
+        errors = [_modality_error(canonical[i], candidate[j], modality) for i, j in path]
         usable = [value for value in errors if value is not None]
         if modality == "hands" and template.required_hand_sides:
             coverage = min(
@@ -2038,7 +2121,7 @@ def compare_sequence(template: MovementTemplate, samples: Sequence[FrameSample],
     if "prop_translation" in path_modalities:
         coverage, _ = _coverage(samples, "prop_translation")
         control_error, local_coverage = _phase_aligned_prop_curve_error(
-            template.canonical_sequence, candidate, path
+            canonical, candidate, path
         )
         if control_error is not None:
             control_coverage = min(coverage, local_coverage)

@@ -23,6 +23,7 @@ from .template_engine import (
     normalize_sequence,
     sequence_motion,
     static_frame_matches,
+    static_match_modalities,
     trailing_hold_window,
     validate_assessment_sequence,
 )
@@ -389,7 +390,9 @@ def _evaluate_static_completion(
     ]
     if not all(matches[-3:]):
         return WAITING_FOR_MOVEMENT
-    if not final_frames_still(normalized, template.required_modalities):
+    if not final_frames_still(
+        normalized, static_match_modalities(target, template.required_modalities)
+    ):
         return POSITION_DETECTED
     if sum(matches) / len(matches) < 0.85:
         return POSITION_DETECTED

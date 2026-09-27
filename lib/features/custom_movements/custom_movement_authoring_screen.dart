@@ -506,11 +506,12 @@ class _CustomMovementAuthoringScreenState
       // not run GET /cameras discovery here: a hardware scan would serialize
       // on the same physical camera and delay this session's first frame.
       final cameraId = await settings.loadSelectedCameraDeviceId();
+      final prop = _prop;
       _requireAccepted(
         await _socket.sendPrepare(
           movement: 'Custom Movement',
           difficulty: _difficulty,
-          prop: _prop,
+          prop: prop,
           sessionId: id,
           sessionMode: 'custom_capture',
           cameraDeviceId: cameraId,
@@ -525,6 +526,10 @@ class _CustomMovementAuthoringScreenState
       );
       _requireAccepted(await _socket.sendBeginReadiness(sessionId: id));
       if (!mounted) return;
+      if (prop != _prop) {
+        // Never expose a session detecting a different prop than selected.
+        throw StateError('Prop changed during preparation');
+      }
       setState(() => _sessionStarted = true);
     } catch (_) {
       await _resetSession();
@@ -1079,7 +1084,14 @@ class _CustomMovementAuthoringScreenState
     });
   }
 
-  bool get _setupLocked => _references.isNotEmpty || _recording || _busy;
+  // A prepare in flight owns the selected prop: changing it now would leave
+  // the backend detecting the previous prop under the new label.
+  bool get _setupLocked =>
+      _references.isNotEmpty ||
+      _recording ||
+      _busy ||
+      _initializing ||
+      _resettingProp;
 
   // ---------------------------------------------------------------------------
   // Shared presentation helpers

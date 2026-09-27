@@ -435,6 +435,89 @@ def test_static_references_reject_unstable_or_inconsistent_endings():
         build_template([normal, unstable], movement_behavior="static")
 
 
+# Wrist-relative hand keypoints (image units) for a held grip and a different
+# grip. Six keypoints give the template sufficient grip evidence.
+_GRIP_SHAPE = {0: (0, 0), 4: (.05, -.02), 5: (.02, -.05), 8: (-.02, -.08),
+               9: (0, -.05), 20: (-.03, -.06)}
+_OTHER_GRIP_SHAPE = {**_GRIP_SHAPE, 4: (-.04, -.02), 8: (.06, -.08)}
+
+
+def _held_grip(*, lift=0.0, elbow_dx=0.0, shape=_GRIP_SHAPE, prop_dx=0.0,
+               prop=True, count=14, interval=100):
+    """Normal-Grip-like hold: bottle held in one hand, upper body visible.
+
+    ``lift`` raises the whole arm/hand/prop relative to the shoulders; the
+    grip and hand-to-prop relation stay identical.
+    """
+    wrist_x, wrist_y = 0.40, 0.55 - lift
+    return tuple(FrameSample(
+        timestamp_ms=index * interval,
+        pose={"11": Landmark(0.3, 0.3), "12": Landmark(0.7, 0.3),
+              "13": Landmark(0.33 + elbow_dx, 0.45 - lift * 0.5),
+              "15": Landmark(wrist_x, wrist_y)},
+        hands={f"left:0:{key}": Landmark(wrist_x + dx, wrist_y + dy)
+               for key, (dx, dy) in shape.items()},
+        prop=Landmark(wrist_x + 0.01 + prop_dx, wrist_y - 0.10) if prop else None,
+        prop_metadata={"bbox_width": 0.06, "bbox_height": 0.25} if prop else {},
+    ) for index in range(count))
+
+
+def _forearm_stall(*, lift=0.0, hands=True, count=14, interval=100):
+    """Body-supported static: prop rests on the forearm, away from the hand."""
+    return tuple(FrameSample(
+        timestamp_ms=index * interval,
+        pose={"11": Landmark(0.3, 0.3), "12": Landmark(0.7, 0.3),
+              "13": Landmark(0.30, 0.55 - lift), "15": Landmark(0.50, 0.55 - lift)},
+        hands=({f"left:0:{key}": Landmark(0.52 + abs(dy), 0.55 + dx)
+                for key, (dx, dy) in _GRIP_SHAPE.items()} if hands else {}),
+        # Prop stays at the reference body location; only the arm moves.
+        prop=Landmark(0.40, 0.45),
+        prop_metadata={"bbox_width": 0.06, "bbox_height": 0.18},
+    ) for index in range(count))
+
+
+def test_hand_led_static_grip_completes_with_different_arm_pose():
+    template = build_template([_held_grip()], movement_behavior="static")
+    # Pose was reliable during authoring, so it is still learned/observed.
+    assert template.required_modalities == ("hands", "pose", "prop_translation")
+    raised = _held_grip(lift=0.15, elbow_dx=0.08)
+    assert evaluate_completion(template, raised) == MOVEMENT_COMPLETED
+    session = websocket_api.VisionSession(
+        "Custom Movement", session_mode="custom_assessment",
+        custom_movement_template=template.to_dict(),
+    )
+    session._custom_samples = list(raised)
+    session._custom_assessment_progress = MOVEMENT_COMPLETED
+    result = session.finish_custom_assessment()
+    assert result["total"] >= 7
+    assert result["component_scores"]["Hand technique"] >= 2
+    # Irrelevant arm geometry is not scored against the reference skeleton.
+    assert result["component_scores"]["Body technique"] is None
+    session.close()
+
+
+@pytest.mark.parametrize("attempt", (
+    pytest.param(_held_grip(shape=_OTHER_GRIP_SHAPE), id="wrong_grip"),
+    pytest.param(_held_grip(lift=0.15, shape=_OTHER_GRIP_SHAPE), id="wrong_grip_raised"),
+    pytest.param(_held_grip(prop=False), id="missing_prop"),
+    pytest.param(_held_grip(prop_dx=0.15), id="prop_not_in_grip"),
+    pytest.param(_held_grip(count=5), id="hold_too_short"),
+))
+def test_hand_led_static_grip_still_rejects_incorrect_attempts(attempt):
+    template = build_template([_held_grip()], movement_behavior="static")
+    assert evaluate_completion(template, attempt) != MOVEMENT_COMPLETED
+
+
+def test_body_supported_static_keeps_pose_as_technique_requirement():
+    for hands in (True, False):
+        template = build_template([_forearm_stall(hands=hands)], movement_behavior="static")
+        assert "pose" in template.required_modalities
+        assert evaluate_completion(template, _forearm_stall(hands=hands)) == MOVEMENT_COMPLETED
+        assert evaluate_completion(
+            template, _forearm_stall(hands=hands, lift=0.12)
+        ) != MOVEMENT_COMPLETED
+
+
 def _prop_jitter(reference, indices, dx=.2):
     return tuple(replace(frame, prop=Landmark(frame.prop.x + dx, frame.prop.y))
                  if index in indices else frame

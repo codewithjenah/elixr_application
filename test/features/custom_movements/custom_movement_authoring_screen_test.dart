@@ -154,6 +154,8 @@ class _Socket extends Fake implements WebSocketService {
   bool rejectNextReference = false;
   bool failDisconnect = false;
   final List<String?> preparedCameraIds = [];
+  final List<TrainingProp> preparedProps = [];
+  Completer<void>? prepareGate;
   int stopCalls = 0;
   int startCustomCaptureCalls = 0;
   int stopCustomCaptureCalls = 0;
@@ -256,6 +258,9 @@ class _Socket extends Fake implements WebSocketService {
           _rejected('prepare', 'camera_unavailable'),
         );
       }
+      preparedProps.add(invocation.namedArguments[#prop] as TrainingProp);
+      final gate = prepareGate;
+      if (gate != null) return gate.future.then((_) => _ack('prepare'));
       return Future<CommandAck>.value(_ack('prepare'));
     }
     if (method == #stopPracticeSession) {
@@ -1581,6 +1586,42 @@ void main() {
       findsNothing,
     );
   });
+
+  testWidgets(
+    'prop cannot change under an in-flight prepare; Bottle to Shaker re-prepares',
+    (tester) async {
+      _useViewport(tester, const Size(1366, 768));
+      final socket = _Socket()..prepareGate = Completer<void>();
+      addTearDown(socket.close);
+      await tester.pumpWidget(_host(repository: _Repository(), socket: socket));
+      ValueChanged<TrainingProp?>? propChanged() => tester
+          .widget<ComboBox<TrainingProp>>(
+            find.byKey(const ValueKey('custom-movement-prop')),
+          )
+          .onChanged;
+
+      await _fillDetails(tester);
+      await _continueToRecording(tester);
+      expect(socket.preparedProps, [TrainingProp.bottle]);
+      // Going back while the bottle session is still preparing must not let
+      // the prop change underneath that session.
+      await tester.tap(_backButton);
+      await tester.pump();
+      expect(propChanged(), isNull);
+
+      socket.prepareGate!.complete();
+      socket.prepareGate = null;
+      await tester.pump(const Duration(milliseconds: 100));
+      propChanged()!(TrainingProp.shaker);
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(socket.stopCalls, 1);
+
+      await _continueToRecording(tester);
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(socket.preparedProps, [TrainingProp.bottle, TrainingProp.shaker]);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets('review shows only learned hand and body capabilities', (
     tester,
