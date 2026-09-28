@@ -159,7 +159,9 @@ AssignmentAttempt _submittedClip({
     videoSizeBytes: 2048,
     videoDurationMs: 4000,
     submittedAt: DateTime.utc(2026, 8, 27, 4),
-    videoExpiresAt: DateTime.utc(2026, 9, 26),
+    // Relative to the wall clock: `videoExpired` compares against now, so a
+    // fixed date turns this playable clip into an expired one over time.
+    videoExpiresAt: DateTime.now().toUtc().add(const Duration(days: 30)),
     createdAt: DateTime.utc(2026, 8, 27, 4),
   );
 }
