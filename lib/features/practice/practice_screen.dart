@@ -207,6 +207,9 @@ class PracticeScreenState extends State<PracticeScreen>
   final ValueNotifier<RubricAssessment?> _assessmentNotifier =
       ValueNotifier<RubricAssessment?>(null);
   final ValueNotifier<double> _holdProgressNotifier = ValueNotifier<double>(0);
+
+  /// Backend-observed motion cue; null once the backend TTL lapses.
+  final ValueNotifier<MotionCue?> _motionCueNotifier = ValueNotifier(null);
   bool _connecting = false;
   String? _sessionError;
   String? _sessionErrorCode;
@@ -284,6 +287,7 @@ class PracticeScreenState extends State<PracticeScreen>
     _frameBytes.dispose();
     _assessmentNotifier.dispose();
     _holdProgressNotifier.dispose();
+    _motionCueNotifier.dispose();
     _comboNotifier.dispose();
     _scorePopupNotifier.dispose();
     _calloutNotifier.dispose();
@@ -306,6 +310,7 @@ class PracticeScreenState extends State<PracticeScreen>
       _frameBytes.value = null;
       _assessmentNotifier.value = null;
       _holdProgressNotifier.value = 0;
+      _motionCueNotifier.value = null;
       if (mounted) {
         final wasCalibrating =
             _run.isPreparingCamera || _run.isReadiness || _run.isCountdown;
@@ -446,6 +451,7 @@ class PracticeScreenState extends State<PracticeScreen>
       _clearFrame();
       _assessmentNotifier.value = null;
       _holdProgressNotifier.value = 0;
+      _motionCueNotifier.value = null;
       setState(() {
         _sessionError = feedback.feedback;
         _sessionErrorCode = feedback.errorCode;
@@ -514,6 +520,7 @@ class PracticeScreenState extends State<PracticeScreen>
     _publishFrame(feedback.frameJpegBytes);
     _assessmentNotifier.value = feedback.assessment;
     _holdProgressNotifier.value = feedback.holdProgress;
+    _motionCueNotifier.value = MotionCue.fromFeedback(feedback);
 
     if (result.comboChanged) {
       _comboNotifier.value = result.comboState;
@@ -918,6 +925,7 @@ class PracticeScreenState extends State<PracticeScreen>
     _clearFrame();
     _assessmentNotifier.value = null;
     _holdProgressNotifier.value = 0;
+    _motionCueNotifier.value = null;
     _comboNotifier.value = const ComboState();
     _scorePopupNotifier.value = const ScorePopupState();
     _calloutNotifier.value = const PerformanceCalloutState();
@@ -1606,6 +1614,7 @@ class PracticeScreenState extends State<PracticeScreen>
           ? TrainingLiveHud(
               assessmentListenable: _assessmentNotifier,
               holdListenable: _holdProgressNotifier,
+              motionCueListenable: _motionCueNotifier,
               comboListenable: _comboNotifier,
               scorePopupListenable: _scorePopupNotifier,
               calloutListenable: _calloutNotifier,

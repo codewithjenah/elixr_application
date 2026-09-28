@@ -21,11 +21,15 @@ class TrainingLiveHud extends StatelessWidget {
     required this.comboListenable,
     required this.scorePopupListenable,
     required this.calloutListenable,
+    this.motionCueListenable,
     this.coaching,
   });
 
   final ValueListenable<RubricAssessment?> assessmentListenable;
   final ValueListenable<double> holdListenable;
+
+  /// Backend-observed motion cue (airborne / flip / caught); null hides it.
+  final ValueListenable<MotionCue?>? motionCueListenable;
   final ValueListenable<ComboState> comboListenable;
   final ValueListenable<ScorePopupState> scorePopupListenable;
   final ValueListenable<PerformanceCalloutState> calloutListenable;
@@ -63,6 +67,23 @@ class TrainingLiveHud extends StatelessWidget {
               child: Align(
                 alignment: Alignment.topCenter,
                 child: _CoachingChip(feedback: coaching!),
+              ),
+            ),
+          if (motionCueListenable != null)
+            Positioned(
+              top: AppSpacing.md,
+              left: AppSpacing.md,
+              child: ValueListenableBuilder<MotionCue?>(
+                valueListenable: motionCueListenable!,
+                builder: (context, cue, _) => AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 160),
+                  child: cue == null
+                      ? const SizedBox.shrink()
+                      : MotionCueBadge(
+                          key: ValueKey('motion-cue-${cue.sequence}'),
+                          kind: cue.kind,
+                        ),
+                ),
               ),
             ),
           Positioned(
@@ -122,6 +143,53 @@ class TrainingLiveHud extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Small camera badge for a backend-observed motion cue.
+class MotionCueBadge extends StatelessWidget {
+  const MotionCueBadge({super.key, required this.kind});
+
+  final MotionEventKind kind;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.elixColors;
+    final accent = switch (kind) {
+      MotionEventKind.airborne => colors.brandPrimary,
+      MotionEventKind.flip => colors.success,
+      MotionEventKind.caught => colors.success,
+    };
+    final icon = switch (kind) {
+      MotionEventKind.airborne => FluentIcons.up,
+      MotionEventKind.flip => FluentIcons.rotate,
+      MotionEventKind.caught => FluentIcons.check_mark,
+    };
+    return Semantics(
+      liveRegion: true,
+      label: kind.label,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        decoration: BoxDecoration(
+          color: colors.surfaceRaised.withValues(alpha: 0.9),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: accent.withValues(alpha: 0.6)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 14, color: accent),
+            const SizedBox(width: 6),
+            Text(
+              kind.label,
+              style: ElixTypography.eyebrow(
+                color: accent,
+              ).copyWith(fontWeight: FontWeight.w800, letterSpacing: 1.1),
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -889,7 +889,7 @@ Version-1 camera images use a dedicated `preview_frame` message so the live JPEG
 
 Flutter must apply `preview_frame` to the camera image only. It must not advance readiness, scoring, combo, hold confirmation, or session lifecycle flags from that message.
 
-Version-1 feedback includes `protocol_version`, `message_type: "feedback"`, and `session_id` in addition to the existing fields. After preview/AI decoupling, live `frame_jpeg_base64` is usually omitted from feedback (the preview path carries the image). Feedback still carries assessment, readiness, hold, and optional `evidence_jpeg_base64`. Freestyle sessions also include `recognition_state`, `recognized_display`, and `detected_prop_type` for the live overlay.
+Version-1 feedback includes `protocol_version`, `message_type: "feedback"`, and `session_id` in addition to the existing fields. After preview/AI decoupling, live `frame_jpeg_base64` is usually omitted from feedback (the preview path carries the image). Feedback still carries assessment, readiness, hold, and optional `evidence_jpeg_base64`. Freestyle sessions also include `recognition_state`, `recognized_display`, and `detected_prop_type` for the live overlay. Guided active feedback may include the presentation-only motion cue `motion_event` (`airborne` | `flip` | `caught`), `motion_event_confidence` (0..1), and `motion_event_sequence` (increments per new event). The backend (`assessment/motion_events.py`) emits a cue only from YOLO-confirmed prop motion relative to current Hands landmarks (a flip needs an observed tall↔wide box change in flight), keeps it for about 1.2 s, then omits it. These fields never affect rubric, hold, or completion; pose-only movements never emit them.
 
 ```text
 bottle_detected

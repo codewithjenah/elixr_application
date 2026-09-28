@@ -19,6 +19,7 @@ from starlette.websockets import WebSocketState
 from assessment.calibration import CalibrationTracker
 from assessment.feedback_codes import category_for
 from assessment.hold_validator import HoldValidator
+from assessment.motion_events import MotionEventTracker
 from assessment.hands_profile import (
     HANDS_BARTENDER_ROI_MOVEMENTS,
     HANDS_ROTATED_FALLBACK_MOVEMENTS,
@@ -844,6 +845,8 @@ class VisionSession:
         # render cache below may bridge detector misses within its age limit.
         self._prev_hip_center: Point2D | None = None
         self._movement_state: dict | None = None
+        # Presentation-only motion cues; never read by scoring or completion.
+        self._motion_events = MotionEventTracker()
         self._model_checked = False
         self._model_error: FeedbackMessage | None = None
         self._readiness_warmed = False
@@ -2861,6 +2864,7 @@ class VisionSession:
                 self._hold_validator.activate()
             self._prev_hip_center = None
             self._movement_state = None
+            self._motion_events.reset()
             self._last_bottles = []
             self._last_shakers = []
             self._last_live_bottles = []
@@ -3778,6 +3782,19 @@ class VisionSession:
                 evidence_b64 = base64.b64encode(evidence_jpeg).decode("ascii")
         feedback_code = rule_result.feedback_code
         category = category_for(feedback_code)
+        # Presentation-only cue from detections already computed above; runs
+        # after scoring and does not influence rubric, hold, or completion.
+        motion_now = time.monotonic()
+        frame_h, frame_w = frame.shape[:2]
+        self._motion_events.update(
+            # Capture time, so velocity is not skewed by inference latency.
+            timestamp=captured.captured_at_monotonic,
+            prop=bottle if self.bottle_detection_enabled else None,
+            hands=hands,
+            width=frame_w,
+            height=frame_h,
+        )
+        motion = self._motion_events.current(motion_now)
         message = self._stamp(
             FeedbackMessage(
                 bottle_detected=normalized.selected_detected,
@@ -3799,6 +3816,9 @@ class VisionSession:
                 feedback_code=feedback_code,
                 feedback_category=category.value if category is not None else None,
                 assessment=assessment,
+                motion_event=motion.kind if motion else None,
+                motion_event_confidence=motion.confidence if motion else None,
+                motion_event_sequence=motion.sequence if motion else None,
             )
         )
         self.timings.add("processing_total", time.perf_counter() - total_start)

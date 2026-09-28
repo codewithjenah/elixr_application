@@ -150,6 +150,12 @@ class FeedbackMessage(BaseModel):
     ] = None
     recognized_display: Optional[str] = None
     detected_prop_type: Optional[PropType] = None
+    # Guided active sessions only: presentation-only live motion cue. Present
+    # for a short TTL after the backend observes the event; never scored.
+    # The sequence increments per new event so clients can deduplicate.
+    motion_event: Optional[Literal["airborne", "flip", "caught"]] = None
+    motion_event_confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    motion_event_sequence: Optional[int] = None
 
     def with_session(self, session_id: str | None) -> "FeedbackMessage":
         """Stamp protocol v1 identity fields when a session_id is known."""

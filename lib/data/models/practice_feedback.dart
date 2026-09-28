@@ -64,6 +64,49 @@ class ReadinessItemView {
   int get hashCode => Object.hash(code, status, message);
 }
 
+/// Backend-observed live motion cue (`motion_event` wire field).
+enum MotionEventKind {
+  airborne,
+  flip,
+  caught;
+
+  String get label => switch (this) {
+    MotionEventKind.airborne => 'AIRBORNE',
+    MotionEventKind.flip => 'FLIP DETECTED',
+    MotionEventKind.caught => 'CAUGHT',
+  };
+
+  /// Unknown or malformed values parse as null (no cue shown).
+  static MotionEventKind? tryParse(Object? raw) => switch (raw) {
+    'airborne' => MotionEventKind.airborne,
+    'flip' => MotionEventKind.flip,
+    'caught' => MotionEventKind.caught,
+    _ => null,
+  };
+}
+
+/// One motion cue occurrence; [sequence] distinguishes repeated kinds.
+class MotionCue {
+  const MotionCue({required this.kind, required this.sequence});
+
+  final MotionEventKind kind;
+  final int sequence;
+
+  static MotionCue? fromFeedback(PracticeFeedback feedback) {
+    final kind = feedback.motionEvent;
+    final sequence = feedback.motionEventSequence;
+    if (kind == null || sequence == null) return null;
+    return MotionCue(kind: kind, sequence: sequence);
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is MotionCue && other.kind == kind && other.sequence == sequence;
+
+  @override
+  int get hashCode => Object.hash(kind, sequence);
+}
+
 class PracticeFeedback {
   const PracticeFeedback({
     required this.bottleDetected,
@@ -106,6 +149,9 @@ class PracticeFeedback {
     this.recognitionState,
     this.recognizedDisplay,
     this.detectedPropType,
+    this.motionEvent,
+    this.motionEventConfidence,
+    this.motionEventSequence,
   });
 
   final bool bottleDetected;
@@ -190,6 +236,12 @@ class PracticeFeedback {
   final RecognitionState? recognitionState;
   final String? recognizedDisplay;
   final TrainingProp? detectedPropType;
+
+  /// Guided active sessions: backend-observed presentation-only motion cue,
+  /// present only for a short backend TTL. Never used for scoring.
+  final MotionEventKind? motionEvent;
+  final double? motionEventConfidence;
+  final int? motionEventSequence;
 
   bool get isPreparing => sessionState == 'preparing';
   bool get isSessionEvaluating => sessionState == 'active';
@@ -381,6 +433,13 @@ class PracticeFeedback {
           : null,
       recognizedDisplay: json['recognized_display'] as String?,
       detectedPropType: TrainingProp.tryParseStrict(json['detected_prop_type']),
+      motionEvent: MotionEventKind.tryParse(json['motion_event']),
+      motionEventConfidence: json['motion_event_confidence'] is num
+          ? (json['motion_event_confidence'] as num).toDouble().clamp(0.0, 1.0)
+          : null,
+      motionEventSequence: json['motion_event_sequence'] is int
+          ? json['motion_event_sequence'] as int
+          : null,
     );
   }
 
