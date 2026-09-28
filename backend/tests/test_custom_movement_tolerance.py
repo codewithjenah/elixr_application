@@ -578,9 +578,10 @@ def test_attempt_where_the_prop_is_never_seen_reports_prop_not_detected(arc_temp
     from assessment.custom_movement.completion import MOVEMENT_DETECTED
 
     session = _assessment_session(arc_template, _arc(prop=False, tail=40), MOVEMENT_DETECTED)
-    with pytest.raises(ValueError, match="prop_not_detected"):
-        session.finish_custom_assessment()
+    payload = session.finish_custom_assessment()
     session.close()
+    assert payload["total"] == 0
+    assert websocket_api._human_error_message("prop_not_detected") in payload["feedback"]
     assert "prop was not detected" in websocket_api._human_error_message("prop_not_detected")
 
 
@@ -608,12 +609,13 @@ def test_one_hand_attempt_of_a_two_hand_movement_is_scored_not_rejected():
     assert payload["movement_completed"] is False
     assert 0 < payload["total"] <= websocket_api._CUSTOM_INCOMPLETE_MAX_TOTAL
     assert any("left hand was not visible" in line for line in payload["feedback"])
-    # With no hand at all it is still unassessable.
+    # With no hand at all it is still unassessable: never credited, scores 0.
     no_hands = tuple(replace(frame, hands={}) for frame in right_only)
     session = _assessment_session(template, no_hands, MOVEMENT_DETECTED)
-    with pytest.raises(ValueError, match="missing_modality|track_loss"):
-        session.finish_custom_assessment()
+    payload = session.finish_custom_assessment()
     session.close()
+    assert payload["total"] == 0
+    assert payload["movement_completed"] is False
 
 
 # --- Relaxed matching: success = attempted, score = similarity -------------------

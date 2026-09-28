@@ -592,6 +592,64 @@ def test_dynamic_completion_rejects_reverse_trajectory_and_half_partial():
     assert evaluate_completion(template, half) == MOVEMENT_DETECTED
 
 
+def _wrong_then_correct():
+    """A reversed (wrong-direction) attempt, then the learned movement."""
+    reference = _reference()
+    reverse = tuple(replace(frame, prop=reference[-1 - index].prop)
+                    for index, frame in enumerate(reference))
+    retry = tuple(replace(frame, timestamp_ms=frame.timestamp_ms + 1000)
+                  for frame in reference)
+    return reverse, reverse + retry
+
+
+def test_failed_first_attempt_does_not_poison_a_later_correct_attempt():
+    template = _template()
+    reverse, samples = _wrong_then_correct()
+    assert evaluate_completion(template, reverse) == MOVEMENT_DETECTED
+    assert evaluate_completion(template, samples) == MOVEMENT_COMPLETED
+
+
+def test_repeated_wrong_attempts_still_never_complete():
+    template = _template()
+    reference = _reference()
+    reverse = tuple(replace(frame, prop=reference[-1 - index].prop)
+                    for index, frame in enumerate(reference))
+    # Out-and-back wrong attempts: reversed travel then a return to start.
+    samples = reverse + tuple(
+        replace(frame, timestamp_ms=frame.timestamp_ms + 1000 * repeat)
+        for repeat in (1, 2)
+        for frame in (reverse if repeat % 2 == 0 else reference)[::-1]
+    )
+    stationary = tuple(replace(reference[0], timestamp_ms=index * 100)
+                       for index in range(30))
+    assert evaluate_completion(template, reverse + reverse[::-1]) != MOVEMENT_COMPLETED
+    assert evaluate_completion(template, stationary) == WAITING_FOR_MOVEMENT
+    assert evaluate_completion(
+        template, tuple(replace(frame, prop=None) for frame in samples)
+    ) != MOVEMENT_COMPLETED
+
+
+def test_completion_after_failed_attempt_scores_only_the_completed_segment():
+    template = _template()
+    _, samples = _wrong_then_correct()
+    session = websocket_api.VisionSession(
+        "Custom Movement", session_mode="custom_assessment",
+        custom_movement_template=template.to_dict(),
+    )
+    session._custom_samples = list(samples)
+    session._custom_assessment_progress = MOVEMENT_COMPLETED
+    session._custom_assessment_movement_start_index = 0
+    session._note_custom_attempt_start(tuple(samples), completed=True)
+    # Re-anchored at the turnaround: the scored segment starts at the retry
+    # (index 10), with at most the failed attempt's final resting frame.
+    assert session._custom_assessment_movement_start_index >= 9
+    assert session.stop_custom_capture()[:2] == (True, None)
+    result = session.finish_custom_assessment()
+    session.close()
+    assert result["movement_completed"] is True
+    assert result["total"] >= 9
+
+
 def test_dynamic_completion_tolerates_fast_execution_and_short_detector_losses():
     template = _template(moving_pose=True)
     reference = _reference(moving_pose=True)
@@ -661,9 +719,17 @@ def test_dynamic_prolonged_required_detector_loss_is_unassessable(modality):
     )
     session._custom_samples = list(lost)
     session._custom_assessment_progress = MOVEMENT_DETECTED
-    with pytest.raises(ValueError, match="missing_modality|track_loss"):
-        session.finish_custom_assessment()
+    # Unassessable evidence is never credited, but still yields a result.
+    result = session.finish_custom_assessment()
     session.close()
+    assert result["movement_completed"] is False
+    assert result["total"] == 0
+    assert all(score in (0, None) for score in result["component_scores"].values())
+    assert result["feedback"][0].startswith("Time expired")
+    assert result["feedback"][1] in {
+        websocket_api._human_error_message(code)
+        for code in ("missing_modality", "track_loss", "prop_not_detected")
+    }
 
 
 def test_required_pose_cannot_be_replaced_by_unrelated_visible_landmark():
@@ -933,6 +999,84 @@ def test_timeout_with_partial_movement_scores_low_but_not_completed():
         assert result["assessment_outcome"] == "needs_improvement"
         assert result["feedback"][0] == "Time expired before the full movement was completed."
     assert partial["total"] <= full["total"]
+
+
+def test_timeout_stop_keeps_unvalidated_assessment_samples_for_scoring():
+    """Stop never discards an assessment recording: finish grades it."""
+    reference = _reference()
+    session = websocket_api.VisionSession(
+        "Custom Movement", session_mode="custom_assessment",
+        custom_movement_template=_template().to_dict(),
+    )
+    # Too short to pass observability: previously rejected at stop.
+    session._custom_samples = list(reference[:2])
+    session._custom_assessment_progress = MOVEMENT_DETECTED
+    session._custom_assessment_movement_start_index = 0
+    accepted, code, quality = session.stop_custom_capture()
+    assert (accepted, code) == (True, None)
+    assert quality["valid"] is False
+    result = session.finish_custom_assessment()
+    session.close()
+    assert result["movement_completed"] is False
+    assert result["total"] <= 6
+
+
+def test_timeout_scores_best_attempt_segment_not_the_failed_first_one():
+    reverse, samples = _wrong_then_correct()
+    first_only = _timed_out_assessment(samples, MOVEMENT_DETECTED, 0)
+    session = websocket_api.VisionSession(
+        "Custom Movement", session_mode="custom_assessment",
+        custom_movement_template=_template().to_dict(),
+    )
+    session._custom_samples = list(samples)
+    session._custom_assessment_progress = MOVEMENT_DETECTED
+    session._custom_assessment_movement_start_index = 0
+    session._custom_assessment_attempt_starts = [0, len(reverse)]
+    best = session.finish_custom_assessment()
+    session.close()
+    assert best["movement_completed"] is False
+    assert best["total"] <= 6
+    assert best["total"] >= first_only["total"]
+
+
+def test_timeout_missing_prop_scores_zero_with_reason():
+    reference = _reference()
+    no_prop = tuple(replace(frame, prop=None) for frame in reference)
+    assert evaluate_completion(_template(), no_prop) != MOVEMENT_COMPLETED
+    result = _timed_out_assessment(no_prop, MOVEMENT_DETECTED, 0)
+    assert result["movement_completed"] is False
+    assert result["total"] == 0
+    assert result["score_percent"] == 0
+    assert result["feedback"][1] == websocket_api._human_error_message(
+        "prop_not_detected"
+    )
+
+
+def test_timeout_wrong_direction_scores_low_not_completed():
+    reverse, _ = _wrong_then_correct()
+    result = _timed_out_assessment(reverse, MOVEMENT_DETECTED, 0)
+    assert result["movement_completed"] is False
+    assert result["total"] <= 6
+    assert result["assessment_outcome"] == "needs_improvement"
+
+
+def test_static_timeout_returns_zero_result_instead_of_rejecting():
+    template = build_template([_grip_reference(), _grip_reference()],
+                              movement_behavior="static")
+    session = websocket_api.VisionSession(
+        "Custom Movement", session_mode="custom_assessment",
+        custom_movement_template=template.to_dict(),
+    )
+    reference = _reference()
+    session._custom_samples = [
+        replace(reference[0], timestamp_ms=index * 100) for index in range(10)
+    ]
+    session._custom_assessment_progress = WAITING_FOR_MOVEMENT
+    result = session.finish_custom_assessment()
+    session.close()
+    assert result["movement_completed"] is False
+    assert result["total"] == 0
+    assert result["feedback"][0] == "Time expired before the saved position was held."
 
 
 def test_low_control_assessment_feedback_coaches_smooth_prop_motion():

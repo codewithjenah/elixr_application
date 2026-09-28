@@ -61,6 +61,7 @@ from assessment.custom_movement.completion import (
     WAITING_FOR_MOVEMENT as CUSTOM_ASSESSMENT_WAITING,
     apply_validated_attempt_floor as apply_custom_validated_attempt_floor,
     evaluate_completion as evaluate_custom_assessment_completion,
+    evaluate_completion_segment as evaluate_custom_assessment_segment,
     estimate_sequence_progress as estimate_custom_sequence_progress,
     find_movement_start_index as find_custom_assessment_start_index,
     live_completion_window as custom_live_completion_window,
@@ -72,6 +73,15 @@ from assessment.custom_movement.template_engine import (
 
 # An attempt that never satisfied completion stays below "competent" (7).
 _CUSTOM_INCOMPLETE_MAX_TOTAL = 6
+
+
+def _rebased_samples(samples):
+    """Custom samples re-timed so the segment starts at 0 ms."""
+    start_timestamp = samples[0].timestamp_ms
+    return tuple(
+        replace(sample, timestamp_ms=sample.timestamp_ms - start_timestamp)
+        for sample in samples
+    )
 from config import (
     DETECTION_PRESENTATION_GRACE_S,
     CUSTOM_PRESENTATION_MIN_GRACE_S,
@@ -899,6 +909,9 @@ class VisionSession:
         self._custom_assessment_progress = CUSTOM_ASSESSMENT_WAITING
         self._custom_assessment_last_evaluated_at: float | None = None
         self._custom_assessment_movement_start_index: int | None = None
+        # Motion onsets of separate attempts in this recording (bounded), so a
+        # timed-out run is graded on its best attempt, not its first one.
+        self._custom_assessment_attempt_starts: list[int] = []
         self._custom_event_tracker = PropEventTracker()
         self._custom_assessment_cue: str | None = None
         self._custom_assessment_cue_sequence = 0
@@ -1114,6 +1127,7 @@ class VisionSession:
                 self._custom_assessment_progress = CUSTOM_ASSESSMENT_WAITING
                 self._custom_assessment_last_evaluated_at = None
                 self._custom_assessment_movement_start_index = None
+                self._custom_assessment_attempt_starts = []
                 self._custom_event_tracker = PropEventTracker()
                 self._custom_assessment_cue = None
                 self._custom_assessment_cue_sequence = 0
@@ -1261,6 +1275,13 @@ class VisionSession:
                 "assessment" if self._is_custom_assessment else "reference",
                 quality,
             )
+            if not valid and self._is_custom_assessment:
+                # Stop only ends the recording. finish_custom_assessment grades
+                # (or, for tracking/prop loss, rejects) the retained evidence,
+                # so a timed-out attempt still reaches a result.
+                quality["accepted"] = True
+                self._custom_samples = list(samples)
+                return True, None, quality
             if not valid:
                 if recorder is not None:
                     recorder.cancel()
@@ -1388,6 +1409,7 @@ class VisionSession:
             scored_segment: tuple[CustomFrameSample, ...] | None = None
             scoring_template = self._custom_template
             missing_hand_sides: tuple[str, ...] = ()
+            unassessable_code: str | None = None
             if not completed and self._custom_assessment_progress != CUSTOM_ASSESSMENT_WAITING:
                 candidate = captured_samples[self._custom_assessment_movement_start_index or 0:]
                 observability = validate_assessment_sequence(
@@ -1413,39 +1435,30 @@ class VisionSession:
                         if segment:
                             scored_segment = segment
                             scoring_template, missing_hand_sides = narrowed
-                # Lost tracking with no usable run is a camera/environment
-                # failure, not a scored attempt: reject it so the trainee can retry.
+                # Lost tracking with no usable run is never credited: the
+                # timed-out attempt scores 0 and the result explains why, so
+                # the trainee still sees a result and can try again.
                 if scored_segment is None and not observability.valid and not any(
                     frame.prop is not None for frame in candidate
                 ):
                     # The selected prop was never detected: say so instead of
                     # a generic tracking-loss message.
-                    raise ValueError("prop_not_detected")
-                if scored_segment is None and not observability.valid and any(
+                    unassessable_code = "prop_not_detected"
+                elif scored_segment is None and not observability.valid and any(
                     code.value in {"missing_modality", "track_loss"}
                     for code in observability.codes
                 ):
-                    raise ValueError(next(
+                    unassessable_code = next(
                         code.value for code in observability.codes
                         if code.value in {"missing_modality", "track_loss"}
-                    ))
-            if not completed and static:
-                raise ValueError(
-                    "custom_position_not_detected"
-                    if self._custom_assessment_progress == CUSTOM_ASSESSMENT_WAITING
-                    else "custom_hold_incomplete"
-                )
+                    )
             start_index = self._custom_assessment_movement_start_index or 0
             samples = scored_segment or captured_samples[start_index:]
             if static:
                 samples = trailing_hold_window(samples)
             if not samples:
                 raise ValueError("custom_capture_not_recording")
-            start_timestamp = samples[0].timestamp_ms
-            samples = tuple(
-                replace(sample, timestamp_ms=sample.timestamp_ms - start_timestamp)
-                for sample in samples
-            )
+            samples = _rebased_samples(samples)
             if completed:
                 result = compare_custom_movement_sequence(
                     self._custom_template, samples, assessment=True,
@@ -1467,7 +1480,22 @@ class VisionSession:
                 # competent so an incomplete sequence cannot pass.
                 result = self._score_incomplete_custom_assessment(
                     samples, template=scoring_template,
+                    unassessable=unassessable_code is not None,
                 )
+                if not static and scored_segment is None and unassessable_code is None:
+                    # Grade the strongest separate attempt, still capped
+                    # below competent by _score_incomplete_custom_assessment.
+                    starts = self._custom_assessment_attempt_starts
+                    for position, attempt_start in enumerate(starts):
+                        end = starts[position + 1] if position + 1 < len(starts) else None
+                        attempt = captured_samples[attempt_start:end]
+                        if (attempt_start == start_index and end is None) or len(attempt) < 2:
+                            continue
+                        candidate_result = self._score_incomplete_custom_assessment(
+                            _rebased_samples(attempt), template=scoring_template,
+                        )
+                        if candidate_result.total > result.total:
+                            result = candidate_result
             payload = result.to_dict()
             payload["movement_completed"] = completed
             payload["max_total"] = 12
@@ -1482,10 +1510,14 @@ class VisionSession:
             ]
             if not completed:
                 payload["feedback"].insert(0, (
-                    "Time expired before the full movement was completed."
+                    "Time expired before the saved position was held."
+                    if static
+                    else "Time expired before the full movement was completed."
                     if self._custom_assessment_progress != CUSTOM_ASSESSMENT_WAITING
                     else "Time expired before the saved movement was detected."
                 ))
+            if unassessable_code is not None:
+                payload["feedback"].insert(1, _human_error_message(unassessable_code))
             for side in missing_hand_sides:
                 payload["feedback"].insert(1, (
                     f"The {side} hand was not visible enough; the saved movement "
@@ -1527,12 +1559,18 @@ class VisionSession:
 
     def _score_incomplete_custom_assessment(
         self, samples, *, template: CustomMovementTemplate | None = None,
+        unassessable: bool = False,
     ) -> CustomSequenceComparison:
-        """Score a dynamic attempt whose timer expired before completion."""
+        """Score an attempt whose timer expired before completion.
+
+        ``unassessable`` (prop never seen, required tracking lost) always
+        scores 0, whatever the comparison would have produced.
+        """
         template = template or self._custom_template
         result = compare_custom_movement_sequence(template, samples, assessment=True)
         if (
-            self._custom_assessment_progress == CUSTOM_ASSESSMENT_WAITING
+            unassessable
+            or self._custom_assessment_progress == CUSTOM_ASSESSMENT_WAITING
             or not result.validation.valid
         ):
             # No detected movement, or evidence too incomplete to compare:
@@ -1679,7 +1717,7 @@ class VisionSession:
             self._custom_assessment_last_evaluated_at = time.monotonic()
             evaluation_started = time.perf_counter()
             recent = tuple(custom_live_completion_window(self._custom_template, samples))
-            progress = evaluate_custom_assessment_completion(
+            progress, attempt_start_ms = evaluate_custom_assessment_segment(
                 self._custom_template, recent
             )
             self.timings.add("custom_completion", time.perf_counter() - evaluation_started)
@@ -1692,6 +1730,11 @@ class VisionSession:
                     find_custom_assessment_start_index(
                         self._custom_template, tuple(samples)
                     )
+                )
+            if attempt_start_ms is not None:
+                self._note_custom_attempt_start(
+                    samples, start_ms=attempt_start_ms,
+                    completed=progress == CUSTOM_ASSESSMENT_COMPLETED,
                 )
             previous = self._custom_assessment_progress
             if progress == CUSTOM_ASSESSMENT_COMPLETED:
@@ -1743,6 +1786,39 @@ class VisionSession:
         if evidence_jpeg is None:
             return None
         return base64.b64encode(evidence_jpeg).decode("ascii")
+
+    _MAX_CUSTOM_ATTEMPT_STARTS = 8
+
+    def _note_custom_attempt_start(
+        self, samples, *, start_ms: int | None = None, completed: bool = False,
+    ) -> None:
+        """Record where the evaluated attempt began in the full recording.
+
+        A completed attempt re-anchors the scored segment to its own start so
+        an earlier failed attempt never pollutes the final comparison. Without
+        ``start_ms`` the latest attempt onset is searched in ``samples``.
+        """
+        if not samples:
+            return
+        if start_ms is None:
+            _, start_ms = evaluate_custom_assessment_segment(
+                self._custom_template, tuple(samples),
+            )
+            if start_ms is None:
+                return
+        index = next(
+            (i for i, sample in enumerate(samples) if sample.timestamp_ms >= start_ms),
+            None,
+        )
+        if index is None:
+            return
+        if completed:
+            self._custom_assessment_movement_start_index = index
+        starts = self._custom_assessment_attempt_starts
+        if index not in starts:
+            starts.append(index)
+            starts.sort()
+            del starts[:-self._MAX_CUSTOM_ATTEMPT_STARTS]
 
     def _set_custom_assessment_cue(self, cue: str, *, force: bool = False) -> None:
         if force or cue != self._custom_assessment_cue:

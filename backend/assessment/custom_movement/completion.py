@@ -363,11 +363,76 @@ def evaluate_completion(
     template: MovementTemplate, samples: Sequence[FrameSample]
 ) -> str:
     """Return progress from observed motion, independently of rubric score."""
+    return evaluate_completion_segment(template, samples)[0]
+
+
+# A failed attempt must not stay the anchor of every later attempt. After an
+# attempt fails, completion re-anchors where the motion next turns around or
+# comes to rest (the natural start of a retry). Restarts are bounded and each
+# candidate rejects cheaply before DTW, so the live 0.5 s evaluation stays
+# cheap. Every re-anchored candidate passes the same direction,
+# sustained-motion, prop and observability gates.
+_MAX_ATTEMPT_RESTARTS = 4
+# Frames spanned by the direction estimate used to find turnarounds; a span
+# (not frame-to-frame) keeps detector jitter from looking like a reversal.
+_TURN_SPAN = 3
+
+
+def _centroid(frame: FrameSample, modality: str) -> tuple[float, float] | None:
+    points = _points(frame, modality)
+    if not points:
+        return None
+    return (sum(x for x, _ in points.values()) / len(points),
+            sum(y for _, y in points.values()) / len(points))
+
+
+def _next_attempt_boundary(
+    normalized: Sequence[FrameSample],
+    start: int,
+    thresholds: Mapping[str, float],
+) -> int | None:
+    """First index after ``start`` where learned motion reverses or rests.
+
+    That point ends the current attempt and is where a retry begins. Returns
+    ``None`` when the motion never turns around, i.e. no new attempt began.
+    """
+    for modality, threshold in thresholds.items():
+        rest = 0.25 * min(0.03, threshold * 0.5)
+        previous: tuple[float, float] | None = None
+        moved = False
+        for index in range(start + _TURN_SPAN, len(normalized)):
+            now = _centroid(normalized[index], modality)
+            before = _centroid(normalized[index - _TURN_SPAN], modality)
+            if now is None or before is None:
+                previous = None
+                continue
+            vector = (now[0] - before[0], now[1] - before[1])
+            magnitude = math.hypot(*vector)
+            if moved and magnitude < rest:
+                return index
+            if (previous is not None and magnitude >= rest
+                    and vector[0] * previous[0] + vector[1] * previous[1] < 0):
+                return index
+            if magnitude >= rest:
+                moved = True
+                previous = vector
+    return None
+
+
+def evaluate_completion_segment(
+    template: MovementTemplate, samples: Sequence[FrameSample]
+) -> tuple[str, int | None]:
+    """Progress plus the start timestamp of the attempt it describes.
+
+    The returned timestamp is the completed attempt's start when completed,
+    otherwise the latest motion onset (the attempt still in progress), or
+    ``None`` while waiting. Static holds report no segment start.
+    """
     if template.movement_behavior == "static":
-        return _evaluate_static_completion(template, samples)
+        return _evaluate_static_completion(template, samples), None
     bounded = _bounded_samples(samples)
     if len(bounded) < 2:
-        return WAITING_FOR_MOVEMENT
+        return WAITING_FOR_MOVEMENT, None
 
     required = template.required_modalities
     normalized = normalize_sequence(
@@ -375,6 +440,40 @@ def evaluate_completion(
         use_pose_anchor="pose" in required,
         required_hand_sides=template.required_hand_sides,
     )
+    thresholds = _moving_thresholds(template)
+    if not thresholds:
+        return _evaluate_dynamic_candidate(template, samples, bounded, normalized, 0), None
+    offset = 0
+    best: tuple[str, int | None] = (WAITING_FOR_MOVEMENT, None)
+    for _ in range(_MAX_ATTEMPT_RESTARTS + 1):
+        start = _movement_start_index(normalized[offset:], thresholds)
+        if start is None:
+            break
+        start += offset
+        status = _evaluate_dynamic_candidate(template, samples, bounded, normalized, start)
+        start_ms = normalized[start].timestamp_ms
+        if status == MOVEMENT_COMPLETED:
+            return status, start_ms
+        if status == MOVEMENT_DETECTED or best[0] == WAITING_FOR_MOVEMENT:
+            best = (status, start_ms if status != WAITING_FOR_MOVEMENT else best[1])
+        # Re-anchor where this failed attempt turns around or rests, so the
+        # retry is compared from its own start, not the failed attempt's tail.
+        boundary = _next_attempt_boundary(normalized, start, thresholds)
+        if boundary is None or len(normalized) - boundary < 2:
+            break
+        offset = boundary
+    return best
+
+
+def _evaluate_dynamic_candidate(
+    template: MovementTemplate,
+    samples: Sequence[FrameSample],
+    bounded: Sequence[FrameSample],
+    normalized: Sequence[FrameSample],
+    movement_start: int,
+) -> str:
+    """Completion gates for one candidate attempt beginning at ``movement_start``."""
+    required = template.required_modalities
     reference = template.canonical_sequence
     thresholds = _moving_thresholds(template)
     moving_modalities = list(thresholds)
@@ -405,11 +504,6 @@ def evaluate_completion(
         * widening / _MAX_SPREAD_WIDENING
     )
 
-    # Retain a short lead-in from the user's start position for comparison.
-    movement_start = _movement_start_index(normalized, thresholds)
-    if movement_start is None:
-        return WAITING_FOR_MOVEMENT
-
     candidate = normalized[movement_start:]
     if not candidate:
         return WAITING_FOR_MOVEMENT
@@ -431,18 +525,11 @@ def evaluate_completion(
     if candidate_duration < _MIN_DYNAMIC_DURATION_MS:
         return MOVEMENT_DETECTED
 
-    validation = validate_assessment_sequence(
-        source_candidate,
-        required,
-        required_hand_sides=template.required_hand_sides,
-        template=template,
-    )
-    if not validation.valid:
-        return MOVEMENT_DETECTED
-
     # Each learned moving modality contributes evidence. A short glitch in one
     # modality cannot veto a well-observed sequence in the others, but every
-    # required modality still has to satisfy live observability above.
+    # required modality still has to satisfy live observability below. Cheap
+    # gates run first; DTW and observability validation run only for a
+    # candidate that could still complete (all gates are required anyway).
     evidence: list[DynamicMotionEvidence] = []
     for modality in moving_modalities:
         expected_range = _sequence_range(reference, modality)
@@ -456,15 +543,6 @@ def evaluate_completion(
         progress, end_error, reference_travel = _displacement_match(
             reference, candidate, modality,
         )
-        centred_reference = _centred(reference, modality)
-        centred_candidate = _centred(candidate, modality)
-        alignment = _dtw(centred_reference, centred_candidate, (modality,))
-        errors = [
-            error for i, j in alignment
-            if (error := _modality_error(
-                centred_reference[i], centred_candidate[j], modality)) is not None
-        ]
-        aligned_error = sum(errors) / len(errors) if errors else None
         ratio = observed_path / expected_path if expected_path > 0 else 0.0
         recent = next(
             (frame for frame in reversed(candidate)
@@ -490,6 +568,18 @@ def evaluate_completion(
         # is judged on start-anchored net travel, while absolute start/end
         # placement and amplitude are left to compare_sequence scoring.
         directional = reference_travel >= 0.5 * expected_range
+        aligned_error = None
+        if (ratio >= _MIN_PATH_RATIO and sustained
+                and _same_movement(directional, progress, phase_progress, min_progress)):
+            centred_reference = _centred(reference, modality)
+            centred_candidate = _centred(candidate, modality)
+            alignment = _dtw(centred_reference, centred_candidate, (modality,))
+            errors = [
+                error for i, j in alignment
+                if (error := _modality_error(
+                    centred_reference[i], centred_candidate[j], modality)) is not None
+            ]
+            aligned_error = sum(errors) / len(errors) if errors else None
         evidence.append(DynamicMotionEvidence(
             modality=modality,
             path_ratio=ratio,
@@ -510,12 +600,20 @@ def evaluate_completion(
     quorum = len(moving_modalities) // 2 + 1 if len(moving_modalities) > 2 else 1
     if sum(item.complete for item in evidence) < quorum:
         return MOVEMENT_DETECTED
-    # Prop presence is enforced by live validation above. A learned prop path
+    # Prop presence is enforced by live validation below. A learned prop path
     # must show real travel (not a set-down prop) that roughly follows the
     # learned action; its exact shape and endpoints are scored by
     # compare_sequence rather than vetoing completion.
     if any(item.modality == "prop_translation" and not _prop_follows(item)
            for item in evidence):
+        return MOVEMENT_DETECTED
+    validation = validate_assessment_sequence(
+        source_candidate,
+        required,
+        required_hand_sides=template.required_hand_sides,
+        template=template,
+    )
+    if not validation.valid:
         return MOVEMENT_DETECTED
     return MOVEMENT_COMPLETED
 

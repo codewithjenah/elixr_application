@@ -45,6 +45,7 @@ class CustomMovementPracticeScreen extends StatefulWidget {
     this.onExit,
     this.sessionService,
     this.classroomAttemptsRemaining,
+    @visibleForTesting this.now = DateTime.now,
   });
 
   final CustomMovement movement;
@@ -67,6 +68,9 @@ class CustomMovementPracticeScreen extends StatefulWidget {
   /// unlimited. Only gates the local Practice Again affordance - the server
   /// remains authoritative for the attempt limit.
   final int? classroomAttemptsRemaining;
+
+  /// Wall clock for the recording deadline; injectable so tests can expire it.
+  final DateTime Function() now;
 
   @override
   State<CustomMovementPracticeScreen> createState() =>
@@ -338,8 +342,8 @@ class _CustomMovementPracticeScreenState
       if (mounted) {
         setState(() {
           _phase = _CustomPracticePhase.recording;
-          _practiceStartedAt = DateTime.now();
-          _recordingDeadline = DateTime.now().add(_captureDuration);
+          _practiceStartedAt = widget.now();
+          _recordingDeadline = _practiceStartedAt!.add(_captureDuration);
           _remainingSeconds = _captureDuration.inSeconds;
         });
         _recordingTimer = Timer.periodic(
@@ -465,8 +469,9 @@ class _CustomMovementPracticeScreenState
     }
   }
 
-  int _elapsedPracticeSeconds() => DateTime.now()
-      .difference(_practiceStartedAt ?? DateTime.now())
+  int _elapsedPracticeSeconds() => widget
+      .now()
+      .difference(_practiceStartedAt ?? widget.now())
       .inSeconds
       .clamp(0, 86400)
       .toInt();
@@ -713,10 +718,9 @@ class _CustomMovementPracticeScreenState
       _recordingTimer = null;
       return;
     }
-    final remaining =
-        (deadline.difference(DateTime.now()).inMilliseconds / 1000)
-            .ceil()
-            .clamp(0, _captureDuration.inSeconds);
+    final remaining = (deadline.difference(widget.now()).inMilliseconds / 1000)
+        .ceil()
+        .clamp(0, _captureDuration.inSeconds);
     if (remaining == 0) {
       _recordingTimer?.cancel();
       _recordingTimer = null;

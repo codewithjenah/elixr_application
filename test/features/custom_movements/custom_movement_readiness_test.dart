@@ -527,6 +527,7 @@ Future<void> _pumpPractice(
   VoidCallback? onExit,
   ClassroomAssignmentRepository? classroomRepository,
   int? classroomAttemptsRemaining,
+  DateTime Function() now = DateTime.now,
 }) async {
   _useDesktopSurface(tester);
   final movement = _movement();
@@ -544,6 +545,7 @@ Future<void> _pumpPractice(
         traineeUid: classroomRepository == null ? null : 'trainee-1',
         classroomRepository: classroomRepository,
         classroomAttemptsRemaining: classroomAttemptsRemaining,
+        now: now,
       ),
     ),
   );
@@ -1422,6 +1424,76 @@ void main() {
       await _autoStartThroughCountdown(tester, socket);
       expect(socket.startCustomCaptureCalls, 2);
       expect(repository.savePersonalResultCalls, 1);
+      await tester.pumpWidget(const SizedBox());
+      await socket.closeTestStreams();
+    },
+  );
+
+  testWidgets(
+    'timeout after a failed attempt shows the scored result and Try Again starts clean',
+    (tester) async {
+      final socket = _CustomSocket()
+        ..nextAssessment = {
+          'score_percent': 25.0,
+          'total': 3,
+          'max_total': 12,
+          'performance_level': 'beginning',
+          'movement_completed': false,
+          'component_scores': {'Timing': 1, 'Prop path': 0},
+          'feedback': ['Time expired before the full movement was completed.'],
+        };
+      final repository = _RecordingRepository();
+      var clock = DateTime(2026, 1, 1, 12);
+      await _pumpPractice(
+        tester,
+        socket,
+        repository: repository,
+        now: () => clock,
+      );
+      await _autoStartThroughCountdown(tester, socket);
+      expect(find.text('Recording · 00:30 max'), findsOne);
+
+      // A wrong first motion is only progress, never a terminal failure.
+      socket.emitFeedback(
+        bottleDetected: true,
+        customAssessmentProgress: 'movement_detected',
+        customAssessmentCue: 'movement_detected',
+        customAssessmentCueSequence: 1,
+      );
+      clock = clock.add(const Duration(seconds: 10));
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.text('Practice needs attention'), findsNothing);
+      expect(find.text('Recording · 00:20 max'), findsOne);
+      expect(socket.finishCustomAssessmentCalls, 0);
+
+      clock = clock.add(const Duration(seconds: 20));
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pumpAndSettle();
+      expect(socket.finishCustomAssessmentCalls, 1);
+      expect(find.text('Practice needs attention'), findsNothing);
+      expect(find.byKey(const ValueKey('custom-result-dialog')), findsOne);
+      expect(find.text('25%'), findsOne);
+      expect(find.text('Score 3 / 12'), findsOne);
+      expect(
+        find.text('•  Time expired before the full movement was completed.'),
+        findsOne,
+      );
+      expect(repository.savedScore, 25.0);
+
+      await tester.tap(
+        find.byKey(const ValueKey('custom-result-practice-again')),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.byKey(const ValueKey('custom-result-dialog')), findsNothing);
+      expect(socket.preparedCameraDeviceIds, hasLength(2));
+      expect(find.text(_autoStartLabel), findsOne);
+      await _autoStartThroughCountdown(tester, socket);
+      expect(socket.startCustomCaptureCalls, 2);
+      // Fresh timer and no carried-over progress or cue.
+      expect(find.text('Recording · 00:30 max'), findsOne);
+      expect(find.text('Waiting for movement…'), findsOne);
+      expect(find.byKey(const ValueKey('custom-live-cue')), findsNothing);
       await tester.pumpWidget(const SizedBox());
       await socket.closeTestStreams();
     },
