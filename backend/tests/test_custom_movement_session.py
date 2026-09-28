@@ -1001,6 +1001,49 @@ def test_timeout_with_partial_movement_scores_low_but_not_completed():
     assert partial["total"] <= full["total"]
 
 
+def _raw_total(samples):
+    return compare_sequence(_template(), samples, assessment=True)
+
+
+def test_correct_attempt_with_webcam_detector_gaps_scores_above_the_floor():
+    # Field logs: correct attempts had 78-90% YOLO prop confirmation, which
+    # capped every component at 2/3 and pinned the result to the 9/12 floor.
+    reference = _reference()
+    for missed in ({7}, {3, 7}):  # 90% and 80% prop coverage
+        gaps = tuple(replace(frame, prop=None) if index in missed else frame
+                     for index, frame in enumerate(reference))
+        result = _raw_total(gaps)
+        assert result.validation.valid
+        assert result.total >= 11
+        assert result.component_scores["Prop path"] == 3
+        # Measured control is not penalised for the gap itself (the
+        # 10-frame fixture has too few triplets to judge it at 80%).
+        assert result.component_scores["Control/stability"] in (3, None)
+    assert _raw_total(tuple(
+        replace(frame, prop=None) if index == 7 else frame
+        for index, frame in enumerate(reference)
+    )).component_scores["Control/stability"] == 3
+
+
+def test_poor_detector_coverage_still_cannot_earn_full_credit():
+    reference = _reference()
+    # 70% coverage: below the full-credit coverage threshold.
+    sparse = tuple(replace(frame, prop=None) if index in {2, 5, 8} else frame
+                   for index, frame in enumerate(reference))
+    result = _raw_total(sparse)
+    assert result.validation.valid
+    assert result.component_scores["Prop path"] <= 2
+    assert (result.component_scores["Control/stability"] or 0) <= 2
+
+
+def test_wrong_path_with_full_coverage_still_scores_low():
+    reference = _reference()
+    wrong = tuple(replace(frame, prop=Landmark(0.2, 0.2 + 0.03 * index))
+                  for index, frame in enumerate(reference))
+    result = _raw_total(wrong)
+    assert result.component_scores["Prop path"] <= 1
+
+
 def test_timeout_stop_keeps_unvalidated_assessment_samples_for_scoring():
     """Stop never discards an assessment recording: finish grades it."""
     reference = _reference()

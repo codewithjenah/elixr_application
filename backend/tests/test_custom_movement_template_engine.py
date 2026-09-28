@@ -135,10 +135,13 @@ def test_control_measures_phase_aligned_jitter_independently_from_prop_path():
 
 def test_missing_modality_and_unrecoverable_track_loss_are_safe_and_not_perfect():
     template = _template()
+    # One webcam detector miss is ordinary: it may still earn full credit.
     temporary = compare_sequence(template, _sequence(miss=(5,)))
     assert temporary.validation.valid
-    assert temporary.component_scores["Prop path"] < 3
-    assert temporary.component_scores["Control/stability"] < 3
+    assert temporary.component_scores["Prop path"] == 3
+    # Sparse detection (below FULL_CREDIT_COVERAGE) never earns full credit.
+    sparse = compare_sequence(template, _sequence(miss=(1, 3, 5, 7)))
+    assert not sparse.validation.valid and sparse.total == 0
     lost = compare_sequence(template, _sequence(miss=(3, 4, 5, 6)))
     assert FailureCode.TRACK_LOSS in lost.validation.codes
     assert lost.total == 0

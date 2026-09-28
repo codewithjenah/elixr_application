@@ -2159,13 +2159,23 @@ def _dtw_angles(reference: Sequence[float | None], candidate: Sequence[float | N
     return list(reversed(path))
 
 
+# Detection coverage at or above which a component may earn full credit.
+# Webcam YOLO/MediaPipe confirm 78-93% of frames on correct attempts (field
+# CUSTOM_CAPTURE_DIAGNOSTICS); a near-perfect bar capped every real attempt at
+# 2/3 and pinned results to the validated floor. Observability validation
+# still rejects long gaps before scoring.
+FULL_CREDIT_COVERAGE = 0.75
+# Fewest measurable neighbour triplets for a Control/stability judgement.
+_MIN_CONTROL_TRIPLETS = 3
+
+
 def _quality(error: float, coverage: float) -> int:
     # 0.20 shoulder-width is deliberately a soft dissimilarity scale.
-    value = 100.0 * math.exp(-error / 0.20) * min(1.0, coverage / 0.98)
+    value = 100.0 * math.exp(-error / 0.20) * min(1.0, coverage / FULL_CREDIT_COVERAGE)
     score = max(0, min(3, round(value * 3 / 100)))
-    # A detector gap is observable uncertainty, never evidence of a flawless
-    # execution.  Keep a usable short gap comparable, but do not award 3/3.
-    return min(score, 2) if coverage < 0.98 else score
+    # Sparse detection is observable uncertainty, never evidence of a
+    # flawless execution: below the full-credit coverage, do not award 3/3.
+    return min(score, 2) if coverage < FULL_CREDIT_COVERAGE else score
 
 
 def _level(total: int) -> str:
@@ -2306,15 +2316,13 @@ def compare_sequence(template: MovementTemplate, samples: Sequence[FrameSample],
         control_error, local_coverage = _phase_aligned_prop_curve_error(
             canonical, candidate, path
         )
-        if control_error is not None:
-            control_coverage = min(coverage, local_coverage)
-            confidence["Control/stability"] = control_coverage
-            control_score = _quality(control_error, control_coverage)
-            # Even a short valid detector gap is uncertainty, not evidence of
-            # perfectly steady control.
-            if coverage < 1.0:
-                control_score = min(control_score, 2)
-            scores["Control/stability"] = control_score
+        # Each missed frame removes three neighbour triplets, so triplet
+        # coverage over-penalises ordinary gaps; confidence is the prop's
+        # detection coverage, with a minimum number of measured triplets.
+        measured = round(local_coverage * max(0, len(candidate) - 2))
+        if control_error is not None and measured >= _MIN_CONTROL_TRIPLETS:
+            confidence["Control/stability"] = coverage
+            scores["Control/stability"] = _quality(control_error, coverage)
     if template.rotation_trace is not None:
         rotation = _rotation_trace(samples)
         stable = _rotation_track_stable(samples)
