@@ -1,7 +1,7 @@
 """Evidence-based completion detection for live custom assessments."""
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Mapping, Sequence
 
 from .template_engine import (
@@ -12,6 +12,7 @@ from .template_engine import (
     MIN_STATIC_HOLD_SAMPLES,
     MIN_TRACKING_SAMPLES,
     STATIC_HOLD_MS,
+    STATIC_LIVE_PLACEMENT_SCALE,
     FrameSample,
     MovementTemplate,
     _dtw,
@@ -39,7 +40,9 @@ POSITION_DETECTED = "position_detected"
 
 # Dynamic completion asks "roughly the learned movement?"; how closely it
 # matched is left to compare_sequence scoring (low similarity = low score).
-_MIN_PATH_RATIO = 0.50
+# These are minimal "was the learned movement attempted?" gates; they are
+# deliberately loose because compare_sequence grades the quality.
+_MIN_PATH_RATIO = 0.35
 _MAX_COMPLETION_SAMPLES = 240
 # Live completion runs synchronously in the AI frame pass every 0.5 s and DTW
 # cost is linear in the candidate length. Completion is sticky, so a recent
@@ -47,9 +50,13 @@ _MAX_COMPLETION_SAMPLES = 240
 _LIVE_WINDOW_DURATION_FACTOR = 2.5
 _LIVE_WINDOW_MIN_MS = 4000
 _MIN_DYNAMIC_DURATION_MS = 350
-_MAX_ALIGNED_MOTION_ERROR = 0.35
+# Compared after centring both paths, so it measures shape, not placement.
+_MAX_ALIGNED_MOTION_ERROR = 0.45
 _MIN_SUSTAINED_MOTION_RATIO = 0.35
-_MIN_OUT_AND_BACK_PHASE = 0.60
+_MIN_OUT_AND_BACK_PHASE = 0.50
+# Examples that disagree widen acceptance up to this factor; near-identical
+# examples keep the base tolerance.
+_MAX_SPREAD_WIDENING = 0.75
 
 
 @dataclass(frozen=True)
@@ -67,24 +74,69 @@ class DynamicMotionEvidence:
     complete: bool
 
 
-_MIN_DISPLACEMENT_PROGRESS = 0.55
+_MIN_DISPLACEMENT_PROGRESS = 0.45
+_MIN_WIDENED_DISPLACEMENT_PROGRESS = 0.40
 
 
 def _same_movement(
     directional: bool,
     progress: float | None,
     phase_progress: float,
+    min_progress: float = _MIN_DISPLACEMENT_PROGRESS,
 ) -> bool:
     """Coarse movement identity from start-anchored displacement.
 
     A directional movement must travel the same way (reversed or sideways
-    attempts project <= 0) for more than half the reference distance. An
+    attempts project <= 0) for a meaningful share of the reference distance. An
     out-and-back movement has little net travel, so it must reach a late
     learned phase. Absolute start/end placement is never required.
     """
     if directional:
-        return progress is not None and progress >= _MIN_DISPLACEMENT_PROGRESS
+        return progress is not None and progress >= min_progress
     return phase_progress >= _MIN_OUT_AND_BACK_PHASE
+
+
+def _spread_widening(template: MovementTemplate) -> float:
+    """0 for consistent examples up to ``_MAX_SPREAD_WIDENING`` for varied ones."""
+    spread = template.variability_metadata.get("reference_spread") or 0.0
+    return min(_MAX_SPREAD_WIDENING, max(0.0, float(spread)))
+
+
+def _centred(sequence: Sequence[FrameSample], modality: str) -> tuple[FrameSample, ...]:
+    """Subtract each point's mean position, keeping only the path's shape.
+
+    Removes where the user stands, where the movement starts, and fixed
+    offsets from different body proportions, so DTW compares the pattern.
+    """
+    observed = [points for frame in sequence if (points := _points(frame, modality))]
+    if not observed:
+        return tuple(sequence)
+    sums: dict[str, list[float]] = {}
+    for points in observed:
+        for key, (x, y) in points.items():
+            total = sums.setdefault(key, [0.0, 0.0, 0.0])
+            total[0] += x
+            total[1] += y
+            total[2] += 1
+    mean = {key: (sx / n, sy / n) for key, (sx, sy, n) in sums.items()}
+
+    def shift(key: str, point):
+        mx, my = mean[key]
+        return replace(point, x=point.x - mx, y=point.y - my)
+
+    frames = []
+    for frame in sequence:
+        if modality == "prop_translation":
+            frames.append(replace(
+                frame, prop=shift("prop", frame.prop) if _usable(frame.prop) else None))
+        elif modality == "pose":
+            frames.append(replace(frame, pose={
+                k: shift(k, p) for k, p in frame.pose.items() if _usable(p) and k in mean}))
+        else:
+            hands = _semantic_hands(frame.hands)
+            frames.append(replace(frame, hands={
+                k: shift(k, p) for k, p in hands.items() if _usable(p) and k in mean}))
+    return tuple(frames)
 
 
 def _bounded_samples(samples: Sequence[FrameSample]) -> tuple[FrameSample, ...]:
@@ -339,6 +391,12 @@ def evaluate_completion(
     # Tolerances below were tuned in shoulder widths; widen (never tighten)
     # them for hand-anchored templates whose units are much smaller.
     tolerance_scale = max(1.0, _motion_unit(template) or 1.0)
+    widening = _spread_widening(template)
+    tolerance_scale *= 1.0 + widening
+    min_progress = _MIN_DISPLACEMENT_PROGRESS - (
+        (_MIN_DISPLACEMENT_PROGRESS - _MIN_WIDENED_DISPLACEMENT_PROGRESS)
+        * widening / _MAX_SPREAD_WIDENING
+    )
 
     # Retain a short lead-in from the user's start position for comparison.
     movement_start = _movement_start_index(normalized, thresholds)
@@ -391,10 +449,13 @@ def evaluate_completion(
         progress, end_error, reference_travel = _displacement_match(
             reference, candidate, modality,
         )
-        alignment = _dtw(reference, candidate, (modality,))
+        centred_reference = _centred(reference, modality)
+        centred_candidate = _centred(candidate, modality)
+        alignment = _dtw(centred_reference, centred_candidate, (modality,))
         errors = [
             error for i, j in alignment
-            if (error := _modality_error(reference[i], candidate[j], modality)) is not None
+            if (error := _modality_error(
+                centred_reference[i], centred_candidate[j], modality)) is not None
         ]
         aligned_error = sum(errors) / len(errors) if errors else None
         ratio = observed_path / expected_path if expected_path > 0 else 0.0
@@ -435,7 +496,7 @@ def evaluate_completion(
             sustained=sustained,
             complete=(ratio >= _MIN_PATH_RATIO
                       and sustained
-                      and _same_movement(directional, progress, phase_progress)
+                      and _same_movement(directional, progress, phase_progress, min_progress)
                       and aligned_error is not None
                       and aligned_error <= _MAX_ALIGNED_MOTION_ERROR * tolerance_scale),
         ))
@@ -465,7 +526,8 @@ def _evaluate_static_completion(
         )
         return POSITION_DETECTED if all(
             static_frame_matches(
-                template.canonical_sequence[-1], frame, template.required_modalities
+                template.canonical_sequence[-1], frame, template.required_modalities,
+                placement_scale=STATIC_LIVE_PLACEMENT_SCALE,
             ) for frame in normalized[-3:]
         ) else WAITING_FOR_MOVEMENT
     validation = validate_assessment_sequence(
@@ -481,7 +543,8 @@ def _evaluate_static_completion(
     )
     target = template.canonical_sequence[-1]
     matches = [
-        static_frame_matches(target, frame, template.required_modalities)
+        static_frame_matches(target, frame, template.required_modalities,
+                             placement_scale=STATIC_LIVE_PLACEMENT_SCALE)
         for frame in normalized
     ]
     if not all(matches[-3:]):

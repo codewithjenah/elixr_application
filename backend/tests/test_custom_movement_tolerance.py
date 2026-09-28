@@ -614,3 +614,140 @@ def test_one_hand_attempt_of_a_two_hand_movement_is_scored_not_rejected():
     with pytest.raises(ValueError, match="missing_modality|track_loss"):
         session.finish_custom_assessment()
     session.close()
+
+
+# --- Relaxed matching: success = attempted, score = similarity -------------------
+
+def _mirror_x(samples, about=0.40):
+    """Reverse horizontal travel of the arm, hand and prop (wrong direction)."""
+    flip = lambda p: Landmark(2 * about - p.x, p.y)  # noqa: E731
+    return tuple(replace(
+        frame,
+        pose={k: (p if k in ("11", "12") else flip(p)) for k, p in frame.pose.items()},
+        hands={k: flip(p) for k, p in frame.hands.items()},
+        prop=flip(frame.prop) if frame.prop else None,
+    ) for frame in samples)
+
+
+def _proportions(samples, *, forearm=(0.07, 0.06), elbow=(0.04, 0.05)):
+    """Another body: elbow and the whole hand/prop chain sit elsewhere."""
+    move = lambda p, d: Landmark(p.x + d[0], p.y + d[1])  # noqa: E731
+    return tuple(replace(
+        frame,
+        pose={k: (move(p, elbow) if k == "13" else p if k in ("11", "12") else move(p, forearm))
+              for k, p in frame.pose.items()},
+        hands={k: move(p, forearm) for k, p in frame.hands.items()},
+        prop=move(frame.prop, forearm) if frame.prop else None,
+    ) for frame in samples)
+
+
+@pytest.mark.parametrize("attempt", (
+    _arc(start=(0.12, 0.09)),                  # starts far from the learned spot
+    _proportions(_arc()),                      # different arm proportions
+    _arc(amp=0.06),                            # half-size movement
+    _retime(_arc(), 250),                      # much slower
+    _arc(count=12, interval=100),              # faster, fewer samples
+))
+def test_same_movement_idea_completes_despite_placement_size_and_speed(arc_template, attempt):
+    assert evaluate_completion(arc_template, attempt) == MOVEMENT_COMPLETED
+    assert compare_sequence(arc_template, attempt, assessment=True).total > 0
+
+
+def test_wrong_direction_and_stationary_dynamic_attempts_still_fail(arc_template):
+    assert evaluate_completion(arc_template, _mirror_x(_arc())) != MOVEMENT_COMPLETED
+    assert evaluate_completion(arc_template, _arc(amp=0.0, noise=0.004)) != MOVEMENT_COMPLETED
+    assert evaluate_completion(arc_template, _arc(amp=0.12 * 0.25)) != MOVEMENT_COMPLETED
+
+
+def test_smaller_and_displaced_attempts_complete_with_lower_scores(arc_template):
+    close = compare_sequence(arc_template, _arc(), assessment=True).total
+    for attempt in (_arc(amp=0.06), _arc(start=(0.12, 0.09))):
+        assert evaluate_completion(arc_template, attempt) == MOVEMENT_COMPLETED
+        assert compare_sequence(arc_template, attempt, assessment=True).total < close
+
+
+def test_varied_references_widen_dynamic_acceptance():
+    consistent = build_template([_arc(), _arc(count=18, interval=110)])
+    varied = build_template([_arc(), _arc(count=18, interval=110, amp=0.07, noise=0.01)])
+    assert consistent.variability_metadata["reference_spread"] < (
+        varied.variability_metadata["reference_spread"]
+    )
+    loose = _arc(reach=0.35)                   # stops early: borderline evidence
+    assert evaluate_completion(consistent, loose) != MOVEMENT_COMPLETED
+    assert evaluate_completion(varied, loose) == MOVEMENT_COMPLETED
+    # Still not an arbitrary pass: reversed travel fails under wide tolerance.
+    assert evaluate_completion(varied, _mirror_x(_arc())) != MOVEMENT_COMPLETED
+
+
+def test_legacy_template_without_reference_spread_still_loads_and_completes(arc_template):
+    data = arc_template.to_dict()
+    data["variability_metadata"].pop("reference_spread")
+    legacy = MovementTemplate.from_dict(data)
+    assert evaluate_completion(legacy, _arc()) == MOVEMENT_COMPLETED
+
+
+def _bend_elbow(samples, degrees):
+    """Rotate the forearm about the elbow; hand and prop follow the wrist."""
+    out = []
+    for frame in samples:
+        elbow, wrist = frame.pose["13"], frame.pose["15"]
+        a = math.radians(degrees)
+        vx, vy = wrist.x - elbow.x, wrist.y - elbow.y
+        nx = elbow.x + vx * math.cos(a) - vy * math.sin(a)
+        ny = elbow.y + vx * math.sin(a) + vy * math.cos(a)
+        dx, dy = nx - wrist.x, ny - wrist.y
+        move = lambda p: Landmark(p.x + dx, p.y + dy)  # noqa: E731
+        out.append(replace(
+            frame,
+            pose={**frame.pose, "15": Landmark(nx, ny)},
+            hands={k: move(p) for k, p in frame.hands.items()},
+            prop=move(frame.prop) if frame.prop else None,
+        ))
+    return tuple(out)
+
+
+def _long_forearm_grip(**kwargs):
+    """_grip with a realistic 0.6-shoulder-width forearm so angles matter."""
+    return tuple(replace(frame, pose={**frame.pose, "13": Landmark(frame.pose["15"].x - 0.02,
+                                                                   frame.pose["15"].y - 0.24)})
+                 for frame in _grip(**kwargs))
+
+
+@pytest.fixture(scope="module")
+def forearm_template():
+    return build_template([_long_forearm_grip()], movement_behavior="static")
+
+
+@pytest.mark.parametrize("degrees", (-25, 25))
+def test_static_hold_with_joint_angle_variation_completes(forearm_template, degrees):
+    attempt = _bend_elbow(_long_forearm_grip(), degrees)
+    assert evaluate_completion(forearm_template, attempt) == MOVEMENT_COMPLETED
+
+
+def test_static_hold_with_body_offset_in_frame_completes(forearm_template):
+    shifted = tuple(replace(
+        frame,
+        pose={k: Landmark(p.x + 0.12, p.y + 0.06) for k, p in frame.pose.items()},
+        hands={k: Landmark(p.x + 0.12, p.y + 0.06) for k, p in frame.hands.items()},
+        prop=Landmark(frame.prop.x + 0.12, frame.prop.y + 0.06),
+    ) for frame in _long_forearm_grip())
+    assert evaluate_completion(forearm_template, shifted) == MOVEMENT_COMPLETED
+
+
+def test_static_rejects_missing_prop_and_a_completely_different_pose(forearm_template):
+    assert evaluate_completion(
+        forearm_template, _long_forearm_grip(prop=False)) != MOVEMENT_COMPLETED
+    raised = _bend_elbow(_long_forearm_grip(), 150)   # forearm pointing up
+    assert evaluate_completion(forearm_template, raised) != MOVEMENT_COMPLETED
+    assert evaluate_completion(forearm_template, _long_forearm_grip(tip=0.41)) != (
+        MOVEMENT_COMPLETED
+    )
+
+
+def test_static_close_and_varied_holds_both_complete_with_ordered_scores(forearm_template):
+    close = _long_forearm_grip()
+    varied = _bend_elbow(_long_forearm_grip(), 25)
+    assert evaluate_completion(forearm_template, close) == MOVEMENT_COMPLETED
+    assert evaluate_completion(forearm_template, varied) == MOVEMENT_COMPLETED
+    assert (compare_sequence(forearm_template, varied, assessment=True).total
+            < compare_sequence(forearm_template, close, assessment=True).total)

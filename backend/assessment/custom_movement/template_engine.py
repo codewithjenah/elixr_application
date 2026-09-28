@@ -28,6 +28,10 @@ STATIC_HAND_KEYPOINT_TOLERANCE = 0.15
 STATIC_HAND_POSITION_TOLERANCE = 0.20
 STATIC_POSE_TOLERANCE = 0.20
 STATIC_PROP_TOLERANCE = 0.25
+# Live assessment widens hand/arm/prop placement (not grip shape) so other
+# body proportions and ~20-30 degree joint differences (elbow 70-120 for a
+# learned 90) still match; authoring keeps the tighter stability limits.
+STATIC_LIVE_PLACEMENT_SCALE = 1.6
 # A static reference is hand-led when a well-tracked hand touches the learned
 # prop box (expanded by this many palm lengths). Its grip and hand-to-prop
 # relation are then compared in a wrist-local frame, so arm/body geometry is
@@ -1396,6 +1400,20 @@ def _require_consistent_dynamic_references(
             })
 
 
+def _reference_spread(
+    resampled: Sequence[Sequence[FrameSample]], common_moving: Sequence[str],
+) -> float:
+    """Mean phase-aligned error between examples as a fraction of their motion."""
+    ratios: list[float] = []
+    for modality in (m for m in common_moving if m in SUPPORTED_MODALITIES):
+        for index, left in enumerate(resampled):
+            for right in resampled[index + 1:]:
+                scale = (sequence_motion(left, modality) + sequence_motion(right, modality)) / 2
+                if scale > EPSILON:
+                    ratios.append(_sequence_distance(left, right, (modality,)) / scale)
+    return sum(ratios) / len(ratios) if ratios else 0.0
+
+
 def build_template(
     references: Sequence[Sequence[FrameSample]],
     required_modalities: Iterable[str] | None = None,
@@ -1510,8 +1528,10 @@ def build_template(
         if any(not static_frame_matches(target, ending, required) for ending in static_endings[1:]):
             raise ReferenceQualityError(FailureCode.INCONSISTENT_STATIC_REFERENCES)
     resampled = [_resample(seq) for seq in normalised]
+    reference_spread = 0.0
     if not static:
         _require_consistent_dynamic_references(resampled, common_moving, motion_unit)
+        reference_spread = _reference_spread(resampled, common_moving)
     medoid_index = min(
         range(len(resampled)),
         key=lambda index: (
@@ -1670,6 +1690,9 @@ def build_template(
             # Template-frame units per shoulder width; lets live completion
             # apply the authoring motion thresholds in the same units.
             "motion_unit": round(motion_unit, 6),
+            # Aligned disagreement between examples relative to their motion
+            # (0 = identical). Live completion widens its tolerance with it.
+            "reference_spread": round(reference_spread, 6),
         },
         prop_events=prop_events,
         rotation_trace=rotation_trace,
@@ -1846,7 +1869,11 @@ def static_match_modalities(
 
 
 def static_frame_matches(
-    target: FrameSample, frame: FrameSample, required_modalities: Sequence[str]
+    target: FrameSample,
+    frame: FrameSample,
+    required_modalities: Sequence[str],
+    *,
+    placement_scale: float = 1.0,
 ) -> bool:
     """Match a held position in normalized space, ranked by evidence.
 
@@ -1873,7 +1900,8 @@ def static_frame_matches(
                 return False
             if any(error > STATIC_HAND_KEYPOINT_TOLERANCE for error in shape):
                 return False
-            if position and sum(position) / len(position) > STATIC_HAND_POSITION_TOLERANCE:
+            if (position and sum(position) / len(position)
+                    > STATIC_HAND_POSITION_TOLERANCE * placement_scale):
                 return False
         elif modality == "pose":
             expected = {k: p for k, p in target.pose.items() if k in MEANINGFUL_POSE_KEYS}
@@ -1883,13 +1911,40 @@ def static_frame_matches(
                       if (e := _point_distance(point, frame.pose.get(key))) is not None]
             if len(errors) < math.ceil(len(expected) / 2):
                 return False
-            if sum(errors) / len(errors) > STATIC_POSE_TOLERANCE:
+            if sum(errors) / len(errors) > STATIC_POSE_TOLERANCE * placement_scale:
                 return False
         else:
             error = _point_distance(target.prop, frame.prop)
-            if error is None or error > STATIC_PROP_TOLERANCE:
+            if error is None or error > STATIC_PROP_TOLERANCE * placement_scale:
+                return False
+            relation = _prop_relation_error(target, frame)
+            if relation is not None and relation > STATIC_PROP_TOLERANCE:
                 return False
     return True
+
+
+def _prop_relation_error(target: FrameSample, frame: FrameSample) -> float | None:
+    """How far the prop moved relative to a wrist both frames observe.
+
+    Absolute placement is compared with a wide live range; this keeps the
+    body-to-prop relationship (in hand, on the forearm) itself unscaled.
+    """
+    target_hands, frame_hands = _semantic_hands(target.hands), _semantic_hands(frame.hands)
+    for source_a, source_b, key in (
+        # Arm wrists first: a body-supported prop is placed relative to the
+        # arm. Hand-led grips drop pose and are already wrist-local.
+        (target.pose, frame.pose, "15"), (target.pose, frame.pose, "16"),
+        (target_hands, frame_hands, "left:0"), (target_hands, frame_hands, "right:0"),
+    ):
+        a, b = source_a.get(key), source_b.get(key)
+        if _usable(a) and _usable(b) and _usable(target.prop) and _usable(frame.prop):
+            assert a is not None and b is not None
+            assert target.prop is not None and frame.prop is not None
+            return math.hypot(
+                (target.prop.x - a.x) - (frame.prop.x - b.x),
+                (target.prop.y - a.y) - (frame.prop.y - b.y),
+            )
+    return None
 
 
 def _hand_errors(
