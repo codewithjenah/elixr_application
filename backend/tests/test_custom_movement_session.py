@@ -18,6 +18,7 @@ from assessment.custom_movement.completion import (
 )
 from assessment.custom_movement.template_engine import (
     ReferenceQualityError,
+    compare_sequence,
     trailing_hold_window,
     validate_assessment_sequence,
 )
@@ -688,7 +689,7 @@ def test_required_pose_cannot_be_replaced_by_unrelated_visible_landmark():
     assert any(code.value == "missing_modality" for code in hand_validation.codes)
 
 
-def test_full_low_quality_sequence_completes_and_scores_needs_improvement():
+def test_full_low_quality_sequence_completes_with_the_validated_floor():
     template = _template()
     jittered_slow = tuple(replace(
         frame,
@@ -704,9 +705,13 @@ def test_full_low_quality_sequence_completes_and_scores_needs_improvement():
     session._custom_assessment_progress = MOVEMENT_COMPLETED
     assert session.stop_custom_capture()[:2] == (True, None)
     result = session.finish_custom_assessment()
-    assert result["total"] < 7
-    assert result["assessment_outcome"] == "needs_improvement"
+    # Low similarity, but completion validated it: beginner floor (>= 70%),
+    # while component scores still show the weak prop control.
+    assert compare_sequence(template, jittered_slow, assessment=True).total < 7
+    assert result["total"] == 9
+    assert result["score_percent"] >= 70
     assert result["score_percent"] == round(result["total"] * 100 / 12, 1)
+    assert min(v for v in result["component_scores"].values() if v is not None) <= 1
     session.close()
 
 

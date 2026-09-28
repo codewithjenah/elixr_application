@@ -686,6 +686,58 @@ def test_legacy_template_without_reference_spread_still_loads_and_completes(arc_
     assert evaluate_completion(legacy, _arc()) == MOVEMENT_COMPLETED
 
 
+# --- Validated-attempt score floor ------------------------------------------------
+
+def _finish(template, attempt):
+    progress = evaluate_completion(template, attempt)
+    session = _assessment_session(template, attempt, progress)
+    try:
+        return progress, session.finish_custom_assessment()
+    finally:
+        session.close()
+
+
+def test_valid_weak_attempt_scores_at_least_seventy_percent(arc_template):
+    weak = _arc(start=(0.12, 0.09), amp=0.07, noise=0.006)
+    assert compare_sequence(arc_template, weak, assessment=True).total < 9
+    progress, payload = _finish(arc_template, weak)
+    assert progress == MOVEMENT_COMPLETED
+    assert payload["movement_completed"] is True
+    assert payload["total"] >= 9 and payload["score_percent"] >= 70
+    assert payload["performance_level"] == websocket_api.custom_performance_level(
+        payload["total"])
+    # Component scores still report the real quality, not the floor.
+    assert payload["component_scores"] == compare_sequence(
+        arc_template, weak, assessment=True).component_scores
+
+
+def test_good_attempt_still_outscores_a_floored_weak_attempt(arc_template):
+    _, weak = _finish(arc_template, _arc(start=(0.12, 0.09), amp=0.07, noise=0.006))
+    _, good = _finish(arc_template, _arc())
+    assert weak["total"] < good["total"] <= 12
+
+
+@pytest.mark.parametrize("attempt", (
+    _arc(amp=0.0, noise=0.004),                                    # stationary
+    _mirror_x(_arc()),                                             # wrong direction
+    tuple(replace(f, prop=Landmark(0.42, 0.50)) for f in _arc()),  # bottle stays still
+    tuple(replace(f, prop=Landmark(0.84 - f.prop.x, f.prop.y))     # bottle travels backwards
+          for f in _arc()),
+))
+def test_invalid_attempts_do_not_complete_or_earn_the_floor(arc_template, attempt):
+    progress = evaluate_completion(arc_template, attempt)
+    assert progress != MOVEMENT_COMPLETED
+    session = _assessment_session(arc_template, attempt, progress)
+    try:
+        payload = session.finish_custom_assessment()
+    except ValueError:
+        return  # rejected outright
+    finally:
+        session.close()
+    assert payload["movement_completed"] is False
+    assert payload["total"] <= websocket_api._CUSTOM_INCOMPLETE_MAX_TOTAL < 9
+
+
 def _bend_elbow(samples, degrees):
     """Rotate the forearm about the elbow; hand and prop follow the wrist."""
     out = []

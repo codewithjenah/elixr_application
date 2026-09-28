@@ -59,6 +59,7 @@ from assessment.custom_movement.completion import (
     MOVEMENT_COMPLETED as CUSTOM_ASSESSMENT_COMPLETED,
     MOVEMENT_DETECTED as CUSTOM_ASSESSMENT_MOVING,
     WAITING_FOR_MOVEMENT as CUSTOM_ASSESSMENT_WAITING,
+    apply_validated_attempt_floor as apply_custom_validated_attempt_floor,
     evaluate_completion as evaluate_custom_assessment_completion,
     estimate_sequence_progress as estimate_custom_sequence_progress,
     find_movement_start_index as find_custom_assessment_start_index,
@@ -1452,6 +1453,12 @@ class VisionSession:
                 if not result.validation.valid:
                     code = result.validation.codes[0].value
                     raise ValueError(code)
+                # Completion validated the attempt (moving, same direction,
+                # prop travelled); similarity only grades above the floor.
+                total = apply_custom_validated_attempt_floor(result.total)
+                result = replace(
+                    result, total=total, performance_level=custom_performance_level(total),
+                )
             else:
                 # The timer expired before completion was confirmed. Timeout
                 # finishes the attempt; it never marks it completed. Score only

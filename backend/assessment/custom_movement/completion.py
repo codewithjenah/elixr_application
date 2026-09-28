@@ -57,6 +57,13 @@ _MIN_OUT_AND_BACK_PHASE = 0.50
 # Examples that disagree widen acceptance up to this factor; near-identical
 # examples keep the base tolerance.
 _MAX_SPREAD_WIDENING = 0.75
+# A learned prop path must travel a meaningful share of the reference path and
+# keep a rough forward projection onto the learned net travel.
+_MIN_PROP_PATH_RATIO = 0.35
+_MIN_PROP_PROGRESS = 0.25
+# Smallest 0..12 rubric total at or above 70% (9/12 = 75%). Applied only to
+# attempts that completion validated; the rubric stays an integer total.
+VALIDATED_ATTEMPT_MIN_TOTAL = 9
 
 
 @dataclass(frozen=True)
@@ -504,11 +511,38 @@ def evaluate_completion(
     if sum(item.complete for item in evidence) < quorum:
         return MOVEMENT_DETECTED
     # Prop presence is enforced by live validation above. A learned prop path
-    # only has to show sustained travel (not a set-down prop); its shape and
-    # endpoints are scored by compare_sequence rather than vetoing completion.
-    if any(item.modality == "prop_translation" and not item.sustained for item in evidence):
+    # must show real travel (not a set-down prop) that roughly follows the
+    # learned action; its exact shape and endpoints are scored by
+    # compare_sequence rather than vetoing completion.
+    if any(item.modality == "prop_translation" and not _prop_follows(item)
+           for item in evidence):
         return MOVEMENT_DETECTED
     return MOVEMENT_COMPLETED
+
+
+def _prop_follows(item: DynamicMotionEvidence) -> bool:
+    """Meaningful prop travel in roughly the learned direction.
+
+    Looser than full movement identity (a prop may move differently from the
+    reference), but a still, barely moved, or opposite-travelling prop cannot
+    pass on body/hand evidence alone.
+    """
+    if not item.sustained or item.path_ratio < _MIN_PROP_PATH_RATIO:
+        return False
+    if item.directional:
+        return item.progress is not None and item.progress >= _MIN_PROP_PROGRESS
+    return True
+
+
+def apply_validated_attempt_floor(total: int) -> int:
+    """Beginner-friendly minimum for an attempt completion already validated.
+
+    Call only after ``evaluate_completion`` returned ``MOVEMENT_COMPLETED`` and
+    the final comparison validated: completion is what rejects stationary,
+    reversed, prop-less, and unrelated movement. Similarity still orders
+    scores above the floor.
+    """
+    return max(total, VALIDATED_ATTEMPT_MIN_TOTAL)
 
 
 def _evaluate_static_completion(
