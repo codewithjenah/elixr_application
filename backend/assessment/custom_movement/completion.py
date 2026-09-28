@@ -37,11 +37,19 @@ MOVEMENT_DETECTED = "movement_detected"
 MOVEMENT_COMPLETED = "completed"
 POSITION_DETECTED = "position_detected"
 
-_MIN_PATH_RATIO = 0.65
-_ENDPOINT_TOLERANCE = 0.40
+# Dynamic completion asks "roughly the learned movement?"; how closely it
+# matched is left to compare_sequence scoring (low similarity = low score).
+_MIN_PATH_RATIO = 0.50
 _MAX_COMPLETION_SAMPLES = 240
+# Live completion runs synchronously in the AI frame pass every 0.5 s and DTW
+# cost is linear in the candidate length. Completion is sticky, so a recent
+# window that still spans a slow execution of the movement is sufficient.
+_LIVE_WINDOW_DURATION_FACTOR = 2.5
+_LIVE_WINDOW_MIN_MS = 4000
 _MIN_DYNAMIC_DURATION_MS = 350
-_MAX_ALIGNED_MOTION_ERROR = 0.25
+_MAX_ALIGNED_MOTION_ERROR = 0.35
+_MIN_SUSTAINED_MOTION_RATIO = 0.35
+_MIN_OUT_AND_BACK_PHASE = 0.60
 
 
 @dataclass(frozen=True)
@@ -55,33 +63,28 @@ class DynamicMotionEvidence:
     progress: float | None
     directional: bool
     reference_travel: float
+    sustained: bool
     complete: bool
 
 
-_MIN_DISPLACEMENT_PROGRESS = 0.6
+_MIN_DISPLACEMENT_PROGRESS = 0.55
 
 
 def _same_movement(
     directional: bool,
     progress: float | None,
-    end_error: float | None,
-    reference_travel: float,
     phase_progress: float,
-    tolerance: float,
 ) -> bool:
-    """Movement identity from start-anchored displacement.
+    """Coarse movement identity from start-anchored displacement.
 
     A directional movement must travel the same way (reversed or sideways
-    attempts project <= 0) for most of the reference distance. An
-    out-and-back movement has little net travel, so it must reach the final
-    phase and return near its own starting point.
+    attempts project <= 0) for more than half the reference distance. An
+    out-and-back movement has little net travel, so it must reach a late
+    learned phase. Absolute start/end placement is never required.
     """
-    if end_error is None:
-        return False
     if directional:
-        return (progress is not None and progress >= _MIN_DISPLACEMENT_PROGRESS
-                and end_error <= max(tolerance, 0.5 * reference_travel))
-    return phase_progress >= 0.85 and end_error <= tolerance
+        return progress is not None and progress >= _MIN_DISPLACEMENT_PROGRESS
+    return phase_progress >= _MIN_OUT_AND_BACK_PHASE
 
 
 def _bounded_samples(samples: Sequence[FrameSample]) -> tuple[FrameSample, ...]:
@@ -94,6 +97,26 @@ def _bounded_samples(samples: Sequence[FrameSample]) -> tuple[FrameSample, ...]:
     if bounded[-1] is not samples[-1]:
         bounded.append(samples[-1])
     return tuple(bounded)
+
+
+def live_completion_window(
+    template: MovementTemplate, samples: Sequence[FrameSample]
+) -> Sequence[FrameSample]:
+    """Recent samples for periodic live dynamic evaluation.
+
+    Spans a lead-in plus ``_LIVE_WINDOW_DURATION_FACTOR`` times the learned
+    duration, so an idle prefix never inflates per-tick comparison cost.
+    Static holds already evaluate only their trailing hold window.
+    """
+    if template.movement_behavior == "static" or not samples:
+        return samples
+    window_ms = max(_LIVE_WINDOW_MIN_MS,
+                    round(_LIVE_WINDOW_DURATION_FACTOR * template.duration_ms) + 1000)
+    cutoff = samples[-1].timestamp_ms - window_ms
+    start = len(samples)
+    while start > 0 and samples[start - 1].timestamp_ms >= cutoff:
+        start -= 1
+    return samples[start:]
 
 
 def _sequence_range(sequence: Sequence[FrameSample], modality: str) -> float:
@@ -389,14 +412,11 @@ def evaluate_completion(
             -min(phase_errors)[1] / max(1, len(reference) - 1)
             if phase_errors else 0.0
         )
-        endpoint_tolerance = min(
-            _ENDPOINT_TOLERANCE * tolerance_scale,
-            max(0.10 * tolerance_scale, expected_range * 0.45),
-        )
         # Detector jitter accumulates path length but not sustained
         # displacement; a stationary attempt cannot satisfy this.
         sustained = sequence_motion(candidate, modality) >= max(
-            0.6 * thresholds[modality], 0.5 * sequence_motion(reference, modality)
+            0.6 * thresholds[modality],
+            _MIN_SUSTAINED_MOTION_RATIO * sequence_motion(reference, modality),
         )
         # Completion asks "same movement?", not "same spot/size?": identity
         # is judged on start-anchored net travel, while absolute start/end
@@ -412,35 +432,20 @@ def evaluate_completion(
             progress=progress,
             directional=directional,
             reference_travel=reference_travel,
+            sustained=sustained,
             complete=(ratio >= _MIN_PATH_RATIO
                       and sustained
-                      and _same_movement(
-                          directional, progress, end_error, reference_travel,
-                          phase_progress, endpoint_tolerance,
-                      )
+                      and _same_movement(directional, progress, phase_progress)
                       and aligned_error is not None
                       and aligned_error <= _MAX_ALIGNED_MOTION_ERROR * tolerance_scale),
         ))
     quorum = len(moving_modalities) // 2 + 1 if len(moving_modalities) > 2 else 1
     if sum(item.complete for item in evidence) < quorum:
         return MOVEMENT_DETECTED
-    prop_evidence = next((item for item in evidence if item.modality == "prop_translation"), None)
-    prop_endpoint_tolerance = min(
-        _ENDPOINT_TOLERANCE * tolerance_scale,
-        max(0.10 * tolerance_scale, _sequence_range(reference, "prop_translation") * 0.60),
-    )
-    if prop_evidence is not None and not (
-        prop_evidence.path_ratio >= 0.50
-        and _same_movement(
-            prop_evidence.directional, prop_evidence.progress, prop_evidence.end_error,
-            prop_evidence.reference_travel, prop_evidence.phase_progress,
-            prop_endpoint_tolerance,
-        )
-        and prop_evidence.aligned_error is not None
-        and prop_evidence.aligned_error <= 0.30 * tolerance_scale
-    ):
-        # A prop-centric template needs meaningful confirmed prop travel even
-        # when body/hand motion supplies the completion quorum.
+    # Prop presence is enforced by live validation above. A learned prop path
+    # only has to show sustained travel (not a set-down prop); its shape and
+    # endpoints are scored by compare_sequence rather than vetoing completion.
+    if any(item.modality == "prop_translation" and not item.sustained for item in evidence):
         return MOVEMENT_DETECTED
     return MOVEMENT_COMPLETED
 

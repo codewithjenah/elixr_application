@@ -610,7 +610,7 @@ def format_perf_line(
     ai_percentiles = " ".join(
         f"{stage}_p50={inference.percentile_ms(stage, 50):.1f}ms "
         f"{stage}_p95={inference.percentile_ms(stage, 95):.1f}ms"
-        for stage in ("yolo", "hands", "pose", "orientation", "processing_total")
+        for stage in ("yolo", "hands", "pose", "orientation", "custom_completion", "processing_total")
         if inference.count(stage) > 0
     )
     inference_concurrency = inference.inference_concurrency_summary()

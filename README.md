@@ -749,7 +749,11 @@ registry:
   `trim_custom_reference` check only reference integrity: at least 1.0 s of
   wall-clock clip, at least 6 processed tracking samples (the AI loop is
   inference-bound, so cadence varies by machine), prop coverage of at least
-  60%, and no prop gap over 800 ms. Rejections use specific codes
+  40%, and no prop gap over 1.2 s (the behavior is not known yet, so these are
+  the dynamic limits; `build_custom_template` re-checks a static reference at
+  60% prop coverage and 800 ms). Dynamic references also tolerate Hands/Pose
+  coverage down to 50% with gaps up to 1 s, and each canonical phase may be
+  filled by either example; static keeps 70% and 450 ms. Rejections use specific codes
   (`reference_duration_too_short`, `insufficient_tracking_samples`,
   `insufficient_prop_coverage`, `excessive_tracking_gap`, `invalid_trim_range`)
   and, like `build_custom_template` rejections (`no_meaningful_motion`,
@@ -799,18 +803,26 @@ registry:
   `movement_detected`, `position_detected`, and `completed`. Optional
   `custom_assessment_cue` and `custom_assessment_cue_sequence` carry distinct
   backend-observed live coaching events; older feedback omits them. Dynamic
-  completion uses observed learned path/phase progress and bounded live tracking
-  gaps. Release, airborne, apex, and catch cues require actual prop/hand evidence;
+  completion asks whether the attempt is roughly the learned movement:
+  sustained motion, same net direction for more than half the learned travel
+  (or a late learned phase for out-and-back movements), and a coarse DTW
+  similarity, using the same 50% / 1 s tracking tolerance as authoring. It does
+  not require matching start/end positions, and a learned prop path only needs
+  sustained travel; closeness is left to scoring. Live completion is evaluated
+  on a recent window (at least 4 s, or 2.5x the learned duration plus 1 s) and
+  its cost is reported as `custom_completion` in `CV PERF`.
+  Release, airborne, apex, and catch cues require actual prop/hand evidence;
   missing phases lower scoring confidence without being invented. Completion is
   independent of the 7/12 competent threshold, so a fully observed but poor
   attempt receives its real low score and a Needs improvement result. Static
   completion keeps the 800 ms hold and tolerates isolated matching jitter while
-  requiring recent correct observations. Reference authoring remains stricter
-  than live assessment. Flutter then sends the existing stop and finish
+  requiring recent correct observations. Static reference authoring remains
+  stricter than live assessment. Flutter then sends the existing stop and finish
   commands; `finish_custom_assessment` returns `custom_assessment` with five
   bounded component scores and a derived `0..12` total. At the 30-second limit,
-  attempts without a detected movement or complete sequence are rejected with
-  user-facing feedback.
+  a dynamic attempt with detected movement is scored from its observed evidence
+  but capped at 6/12 (`movement_completed: false`); no detected movement scores
+  0, and lost tracking beyond the tolerance is rejected with user-facing feedback.
 
 All custom actions require `protocol_version`, `request_id`, and `session_id`
 and receive correlated `command_ack` responses. Templates are inert data;

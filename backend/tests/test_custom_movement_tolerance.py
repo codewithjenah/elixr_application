@@ -298,6 +298,149 @@ def test_dynamic_builds_at_low_ai_cadence():
     assert build_template([_dynamic(count=6, interval=200, prop_step=0.012)] * 2)
 
 
+# --- Forgiving dynamic authoring and execution ----------------------------------
+
+def _arc(count=20, interval=100, *, amp=0.12, start=(0.0, 0.0), shift=(0.0, 0.0), noise=0.0,
+         reach=1.0, lead=0, tail=0, prop_miss=(), hand_miss=(), pose_miss=(), prop=True):
+    """Arm-led out-and-up arc carrying the prop, with optional idle lead/tail.
+
+    ``start`` offsets the arm and prop from their learned position, ``shift``
+    moves the whole body in the frame, and ``reach`` stops the path early.
+    """
+    frames = []
+    for k in range(lead + count + tail):
+        t = reach * min(max(k - lead, 0), count - 1) / (count - 1)
+        sx, sy = shift
+        wx = 0.40 + start[0] + amp * t + noise * _noise(k, 1) + sx
+        wy = 0.55 + start[1] - 0.8 * amp * math.sin(math.pi * t) + noise * _noise(k, 2) + sy
+        pose = {"11": Landmark(0.3 + sx, 0.3 + sy), "12": Landmark(0.7 + sx, 0.3 + sy),
+                "13": Landmark(0.35 + sx, 0.42 + sy), "15": Landmark(wx, wy)}
+        frames.append(FrameSample(
+            k * interval,
+            {} if k in pose_miss else pose,
+            {} if k in hand_miss else _hand(wx, wy, wx + 0.03),
+            None if (not prop or k in prop_miss) else Landmark(
+                wx + 0.02 + noise * _noise(k, 3), wy - 0.05 + noise * _noise(k, 4)),
+            {"track_id": 1},
+        ))
+    return tuple(frames)
+
+
+@pytest.fixture(scope="module")
+def arc_template():
+    return build_template([_arc(), _arc(count=18, interval=110)])
+
+
+@pytest.mark.parametrize("first", (
+    _arc(hand_miss=set(range(6, 12))),          # 700 ms Hands loss
+    _arc(hand_miss=set(range(0, 20, 3))),       # 65% hand coverage, 1-frame drops
+    _arc(pose_miss=set(range(6, 12))),          # 700 ms Pose loss on an arm-led move
+    _arc(prop_miss=set(range(5, 14))),          # 1 s YOLO loss
+    _arc(start=(0.05, 0.04)),                   # different starting position
+    _arc(shift=(0.10, 0.05)),                   # different body placement in frame
+    _arc(count=26, interval=90),                # slower, different timing
+    _arc(noise=0.01),                           # noisy path
+    _arc(lead=8, tail=6),                       # idle before and after the move
+    _arc(amp=0.07),                             # smaller second demonstration
+))
+def test_imperfect_dynamic_references_still_build(first):
+    template = build_template([first, _arc(count=18, interval=110)])
+    assert template.movement_behavior == "dynamic"
+    assert "prop_translation" in template.required_modalities
+
+
+def test_dynamic_references_still_reject_stationary_missing_prop_and_mostly_lost_hand():
+    still = _arc(amp=0.0, noise=0.004)
+    with pytest.raises(ReferenceQualityError, match="no_meaningful_motion"):
+        build_template([still, still])
+    with pytest.raises(ReferenceQualityError, match="insufficient_prop_coverage"):
+        build_template([_arc(prop=False), _arc()])
+    with pytest.raises(ReferenceQualityError, match="insufficient_hand_coverage"):
+        build_template([_arc(hand_miss=set(range(3, 20))), _arc()], ("hands",))
+
+
+@pytest.mark.parametrize("attempt", (
+    _arc(reach=0.8),                            # stops before the learned end
+    _arc(start=(0.06, 0.05)),                   # starts somewhere else
+    _arc(amp=0.084, noise=0.004),               # 70% size, slightly noisy
+    _arc(noise=0.015),                          # noisy path
+    _arc(lead=10, tail=8),                      # idle before and after
+    _arc(hand_miss=set(range(6, 11))),          # 600 ms Hands loss
+    _arc(prop_miss=set(range(6, 12))),          # 700 ms YOLO loss
+    _retime(_arc(), 60),                        # faster
+    _retime(_arc(), 180),                       # slower
+))
+def test_approximately_correct_dynamic_attempts_complete(arc_template, attempt):
+    assert evaluate_completion(arc_template, attempt) == MOVEMENT_COMPLETED
+    assert compare_sequence(arc_template, attempt, assessment=True).validation.valid
+
+
+def test_incorrect_dynamic_attempts_still_do_not_complete(arc_template):
+    backwards = _arc()
+    backwards = tuple(replace(frame, timestamp_ms=index * 100)
+                      for index, frame in enumerate(reversed(backwards)))
+    assert evaluate_completion(arc_template, backwards) != MOVEMENT_COMPLETED
+    assert evaluate_completion(arc_template, _arc(amp=0.0, noise=0.004)) != MOVEMENT_COMPLETED
+    assert evaluate_completion(arc_template, _arc(reach=0.35)) != MOVEMENT_COMPLETED
+    # Arm and hand perform the arc while the prop is set down and never moves.
+    set_down = tuple(replace(frame, prop=Landmark(0.42, 0.50)) for frame in _arc())
+    assert evaluate_completion(arc_template, set_down) != MOVEMENT_COMPLETED
+
+
+def test_similarity_sets_the_dynamic_score_not_whether_it_completes(arc_template):
+    close = _arc()
+    weaker = _arc(start=(0.06, 0.05))
+    assert evaluate_completion(arc_template, close) == MOVEMENT_COMPLETED
+    assert evaluate_completion(arc_template, weaker) == MOVEMENT_COMPLETED
+    high = compare_sequence(arc_template, close, assessment=True).total
+    low = compare_sequence(arc_template, weaker, assessment=True).total
+    assert 0 < low < high <= 12
+
+
+def test_live_completion_window_drops_idle_prefix_but_keeps_the_movement(arc_template):
+    from assessment.custom_movement.completion import live_completion_window
+
+    idle_then_move = _arc(lead=250, tail=5)          # 25 s idle, then the arc
+    window = live_completion_window(arc_template, idle_then_move)
+    assert len(window) < 80
+    assert window[-1] is idle_then_move[-1]
+    assert evaluate_completion(arc_template, window) == MOVEMENT_COMPLETED
+    static = build_template([_grip()], movement_behavior="static")
+    assert live_completion_window(static, _grip()) == _grip()
+
+
+def _assessment_session(template, samples, progress):
+    session = websocket_api.VisionSession(
+        "Custom Movement", session_mode="custom_assessment",
+        custom_movement_template=template.to_dict(),
+    )
+    session._custom_samples = list(samples)
+    session._custom_assessment_progress = progress
+    return session
+
+
+def test_every_usable_dynamic_attempt_produces_a_score_payload(arc_template):
+    totals = {}
+    for name, attempt in (("close", _arc()), ("weaker", _arc(start=(0.06, 0.05)))):
+        session = _assessment_session(arc_template, attempt, MOVEMENT_COMPLETED)
+        payload = session.finish_custom_assessment()
+        session.close()
+        assert payload["movement_completed"] is True
+        assert payload["max_total"] == 12
+        totals[name] = payload["total"]
+    assert 0 < totals["weaker"] < totals["close"]
+    # A timed-out attempt with a temporary Hands loss is still scored, not
+    # rejected as track loss.
+    from assessment.custom_movement.completion import MOVEMENT_DETECTED
+
+    partial = _arc(reach=0.35, hand_miss=set(range(6, 11)))
+    session = _assessment_session(arc_template, partial, MOVEMENT_DETECTED)
+    payload = session.finish_custom_assessment()
+    session.close()
+    assert payload["movement_completed"] is False
+    assert 0 < payload["total"] <= websocket_api._CUSTOM_INCOMPLETE_MAX_TOTAL
+
+
 # --- Duration / sample diagnostics ---------------------------------------------
 
 def test_integrity_separates_duration_samples_prop_and_gaps():
@@ -310,11 +453,21 @@ def test_integrity_separates_duration_samples_prop_and_gaps():
         check_reference_integrity(_grip(count=4, interval=1300), clip_duration_ms=5200)
     assert sparse.value.details["duration_ms"] == 5200
     assert (sparse.value.details["sample_count"], sparse.value.details["required_sample_count"]) == (4, 6)
+    half_prop = _grip(prop_miss=set(range(6)))
     with pytest.raises(ReferenceQualityError, match="insufficient_prop_coverage"):
-        check_reference_integrity(_grip(prop_miss=set(range(6))), clip_duration_ms=1200)
+        check_reference_integrity(half_prop, clip_duration_ms=1200, movement_behavior="static")
+    one_second_miss = _grip(count=24, prop_miss=set(range(8, 17)))
     with pytest.raises(ReferenceQualityError, match="excessive_tracking_gap") as gap:
-        check_reference_integrity(_grip(count=24, prop_miss=set(range(8, 17))), clip_duration_ms=2400)
+        check_reference_integrity(one_second_miss, clip_duration_ms=2400, movement_behavior="static")
     assert gap.value.details["longest_tracking_gap_ms"] == 1000
+    # Dynamic references tolerate these temporary YOLO losses ...
+    assert check_reference_integrity(half_prop, clip_duration_ms=1200)["required_prop_coverage"] == 0.4
+    assert check_reference_integrity(one_second_miss, clip_duration_ms=2400)
+    # ... but not a mostly or completely missing prop.
+    with pytest.raises(ReferenceQualityError, match="insufficient_prop_coverage"):
+        check_reference_integrity(_grip(prop_miss=set(range(8))), clip_duration_ms=1200)
+    with pytest.raises(ReferenceQualityError, match="insufficient_prop_coverage"):
+        check_reference_integrity(_grip(prop=False), clip_duration_ms=1200)
     quality = check_reference_integrity(_grip(), clip_duration_ms=1200)
     assert quality["sample_count"] == 12 and quality["prop_coverage"] == 1.0
 

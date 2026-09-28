@@ -7,7 +7,7 @@ normalised around the body and shoulder scale while retaining left/right keys.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
 import math
 from typing import Any, Iterable, Mapping, Sequence
@@ -55,6 +55,14 @@ MIN_STATIC_HOLD_SAMPLES = 4  # 800 ms at >= 5 Hz (window includes boundary)
 REFERENCE_MIN_PROP_COVERAGE = 0.60
 REFERENCE_MAX_GAP_MS = ASSESSMENT_MAX_TRACK_GAP_MS
 REFERENCE_MAX_PROP_GAP_MS = 800
+# Dynamic movements learn a general pattern from two imperfect examples, so
+# temporary YOLO/Hands/Pose losses are tolerated for longer than in a held
+# static pose (which keeps the stricter limits above). A mostly missing input
+# is still rejected, and live attempts use the same limits as authoring.
+DYNAMIC_MIN_COVERAGE = 0.50
+DYNAMIC_MAX_TRACK_GAP_MS = 1000
+DYNAMIC_REFERENCE_MIN_PROP_COVERAGE = 0.40
+DYNAMIC_REFERENCE_MAX_PROP_GAP_MS = 1200
 # Meaningful dynamic motion, in shoulder widths. Converted to each template's
 # own coordinate units with ``motion_unit`` so hand-anchored templates are not
 # judged against pose-anchored numbers.
@@ -397,6 +405,17 @@ def minimum_references(movement_behavior: str) -> int:
     return MIN_STATIC_REFERENCES if movement_behavior == "static" else MIN_DYNAMIC_REFERENCES
 
 
+def tracking_limits(movement_behavior: str) -> dict[str, float]:
+    """Coverage and elapsed-gap limits for one movement behavior."""
+    if movement_behavior == "static":
+        return {"coverage": MIN_COVERAGE, "gap_ms": REFERENCE_MAX_GAP_MS,
+                "prop_coverage": REFERENCE_MIN_PROP_COVERAGE,
+                "prop_gap_ms": REFERENCE_MAX_PROP_GAP_MS}
+    return {"coverage": DYNAMIC_MIN_COVERAGE, "gap_ms": DYNAMIC_MAX_TRACK_GAP_MS,
+            "prop_coverage": DYNAMIC_REFERENCE_MIN_PROP_COVERAGE,
+            "prop_gap_ms": DYNAMIC_REFERENCE_MAX_PROP_GAP_MS}
+
+
 def _usable(point: Landmark | None) -> bool:
     return point is not None and point.usable()
 
@@ -493,6 +512,7 @@ def reference_quality(
     right = _coverage(samples, "hands", hand_side="right")[0]
     static = movement_behavior == "static"
     hold = trailing_hold_window(samples) if static else ()
+    limits = tracking_limits(movement_behavior)
     return {
         "duration_ms": clip_duration_ms if clip_duration_ms is not None else span,
         "required_duration_ms": MIN_REFERENCE_DURATION_MS,
@@ -507,9 +527,9 @@ def reference_quality(
         "right_hand_coverage": round(right, 3),
         "pose_coverage": round(_coverage(samples, "pose")[0], 3),
         "prop_coverage": round(_coverage(samples, "prop_translation")[0], 3),
-        "required_prop_coverage": REFERENCE_MIN_PROP_COVERAGE,
+        "required_prop_coverage": limits["prop_coverage"],
         "longest_tracking_gap_ms": _longest_gap_ms(samples, _presence(samples, "prop_translation")),
-        "maximum_tracking_gap_ms": REFERENCE_MAX_PROP_GAP_MS,
+        "maximum_tracking_gap_ms": limits["prop_gap_ms"],
         "required_hold_ms": STATIC_HOLD_MS if static else None,
     }
 
@@ -525,6 +545,8 @@ def check_reference_integrity(
 
     Semantic checks (motion, stable hold, hand sides) need every reference
     and run in :func:`build_template`. Returns the measured quality.
+    Recording stop and trim do not know the behavior yet and use the dynamic
+    limits; the stricter static limits are enforced when the template builds.
     """
     quality = reference_quality(
         samples, clip_duration_ms=clip_duration_ms, movement_behavior=movement_behavior,
@@ -535,9 +557,9 @@ def check_reference_integrity(
         raise ReferenceQualityError(FailureCode.REFERENCE_DURATION_TOO_SHORT, quality)
     if len(samples) < MIN_TRACKING_SAMPLES:
         raise ReferenceQualityError(FailureCode.INSUFFICIENT_TRACKING_SAMPLES, quality)
-    if quality["prop_coverage"] < REFERENCE_MIN_PROP_COVERAGE:
+    if quality["prop_coverage"] < quality["required_prop_coverage"]:
         raise ReferenceQualityError(FailureCode.INSUFFICIENT_PROP_COVERAGE, quality)
-    if quality["longest_tracking_gap_ms"] > REFERENCE_MAX_PROP_GAP_MS:
+    if quality["longest_tracking_gap_ms"] > quality["maximum_tracking_gap_ms"]:
         raise ReferenceQualityError(FailureCode.EXCESSIVE_TRACKING_GAP, quality)
     return quality
 
@@ -598,12 +620,16 @@ def validate_assessment_sequence(
     )
     if len(samples) < minimum_samples:
         codes.append(FailureCode.INSUFFICIENT_FRAMES)
+    dynamic = template is not None and template.movement_behavior == "dynamic"
+    min_coverage = DYNAMIC_MIN_COVERAGE if dynamic else MIN_COVERAGE
+    max_gap_ms = DYNAMIC_MAX_TRACK_GAP_MS if dynamic else ASSESSMENT_MAX_TRACK_GAP_MS
+    max_interval_ms = DYNAMIC_MAX_TRACK_GAP_MS if dynamic else ASSESSMENT_MAX_FRAME_INTERVAL_MS
     timestamps = [frame.timestamp_ms for frame in samples]
     if any(not isinstance(ts, int) for ts in timestamps) or any(
         b <= a for a, b in zip(timestamps, timestamps[1:])
     ):
         codes.append(FailureCode.INVALID_TIMESTAMPS)
-    if any(b - a > ASSESSMENT_MAX_FRAME_INTERVAL_MS for a, b in zip(timestamps, timestamps[1:])):
+    if any(b - a > max_interval_ms for a, b in zip(timestamps, timestamps[1:])):
         codes.append(FailureCode.TRACK_LOSS)
     for modality in required:
         sides = tuple(sorted(set(required_hand_sides))) if modality == "hands" else (None,)
@@ -633,19 +659,19 @@ def validate_assessment_sequence(
                     for frame in samples
                 ]
             coverage = sum(present) / len(samples) if samples else 0.0
-            if coverage < MIN_COVERAGE:
+            if coverage < min_coverage:
                 codes.append(FailureCode.MISSING_MODALITY)
             last_seen: int | None = None
             missing = False
             for frame, observed in zip(samples, present):
                 if observed:
-                    if missing and last_seen is not None and frame.timestamp_ms - last_seen > ASSESSMENT_MAX_TRACK_GAP_MS:
+                    if missing and last_seen is not None and frame.timestamp_ms - last_seen > max_gap_ms:
                         codes.append(FailureCode.TRACK_LOSS)
                     last_seen = frame.timestamp_ms
                     missing = False
                 else:
                     missing = True
-                    if frame.timestamp_ms - (last_seen if last_seen is not None else samples[0].timestamp_ms) > ASSESSMENT_MAX_TRACK_GAP_MS:
+                    if frame.timestamp_ms - (last_seen if last_seen is not None else samples[0].timestamp_ms) > max_gap_ms:
                         codes.append(FailureCode.TRACK_LOSS)
             if samples and last_seen is None:
                 codes.append(FailureCode.TRACK_LOSS)
@@ -967,7 +993,8 @@ def _infer_requirements(
     hand_sides = tuple(
         side
         for side in ("left", "right")
-        if all(_reliable(reference, "hands", hand_side=side) for reference in references)
+        if all(_reliable(reference, "hands", hand_side=side, movement_behavior=movement_behavior)
+               for reference in references)
     )
     meaningful_pose_count = sum(
         _pose_motion(reference) >= POSE_MOTION_THRESHOLD for reference in references
@@ -975,7 +1002,7 @@ def _infer_requirements(
     required = ["prop_translation"]
     if hand_sides:
         required.append("hands")
-    if _pose_reliable(references) and (
+    if _pose_reliable(references, movement_behavior=movement_behavior) and (
         movement_behavior == "static"
         or meaningful_pose_count >= min(2, len(references))
     ):
@@ -984,17 +1011,22 @@ def _infer_requirements(
 
 
 def _reliable(
-    reference: Sequence[FrameSample], modality: str, *, hand_side: str | None = None
+    reference: Sequence[FrameSample], modality: str, *, hand_side: str | None = None,
+    movement_behavior: str = "static",
 ) -> bool:
+    limits = tracking_limits(movement_behavior)
     return (
-        _coverage(reference, modality, hand_side=hand_side)[0] >= MIN_COVERAGE
+        _coverage(reference, modality, hand_side=hand_side)[0] >= limits["coverage"]
         and _longest_gap_ms(reference, _presence(reference, modality, hand_side=hand_side))
-        <= REFERENCE_MAX_GAP_MS
+        <= limits["gap_ms"]
     )
 
 
-def _pose_reliable(references: Sequence[Sequence[FrameSample]]) -> bool:
-    return all(_reliable(reference, "pose") for reference in references)
+def _pose_reliable(
+    references: Sequence[Sequence[FrameSample]], *, movement_behavior: str = "static",
+) -> bool:
+    return all(_reliable(reference, "pose", movement_behavior=movement_behavior)
+               for reference in references)
 
 
 def _median(values: Sequence[float]) -> float:
@@ -1199,15 +1231,16 @@ def _validate_reference(
         b <= a for a, b in zip(timestamps, timestamps[1:])
     ):
         raise ReferenceQualityError(FailureCode.INVALID_TIMESTAMPS, quality)
-    if quality["prop_coverage"] < REFERENCE_MIN_PROP_COVERAGE:
+    if quality["prop_coverage"] < quality["required_prop_coverage"]:
         raise ReferenceQualityError(FailureCode.INSUFFICIENT_PROP_COVERAGE, quality)
-    if quality["longest_tracking_gap_ms"] > REFERENCE_MAX_PROP_GAP_MS:
+    if quality["longest_tracking_gap_ms"] > quality["maximum_tracking_gap_ms"]:
         raise ReferenceQualityError(FailureCode.EXCESSIVE_TRACKING_GAP, quality)
+    limits = tracking_limits(movement_behavior)
     checks = [("hands", side) for side in hand_sides] + (
         [("pose", None)] if "pose" in required else []
     )
     for modality, side in checks:
-        if _coverage(reference, modality, hand_side=side)[0] < MIN_COVERAGE:
+        if _coverage(reference, modality, hand_side=side)[0] < limits["coverage"]:
             details = quality
             if modality == "hands" and side is not None:
                 details = {**quality, "hand_side": side,
@@ -1218,7 +1251,7 @@ def _validate_reference(
                 details,
             )
         gap = _longest_gap_ms(reference, _presence(reference, modality, hand_side=side))
-        if gap > REFERENCE_MAX_GAP_MS:
+        if gap > limits["gap_ms"]:
             raise ReferenceQualityError(
                 FailureCode.EXCESSIVE_TRACKING_GAP, {**quality, "longest_tracking_gap_ms": gap},
             )
@@ -1238,7 +1271,8 @@ def _require_dynamic_motion(
     """
     evidence = [_motion_evidence(r, required, hand_sides) for r in references]
     if (not all(signals["movement_signals"] for signals, _ in evidence)
-            and "pose" not in required and _pose_reliable(references)):
+            and "pose" not in required
+            and _pose_reliable(references, movement_behavior="dynamic")):
         anchored = tuple(sorted((*required, "pose")))
         alternative = [_motion_evidence(r, anchored, hand_sides) for r in references]
         if all(signals["movement_signals"] for signals, _ in alternative):
@@ -1428,6 +1462,15 @@ def build_template(
 
     canonical: list[FrameSample] = []
     canonical_duration = round(sum(durations) / len(durations))
+    # Landmarks every example observed somewhere; a landmark only one example
+    # ever reported is not learned even where dynamic phases fill each other.
+    agreed_pose = set.intersection(*(
+        {key for frame in sequence for key in frame.pose} for sequence in resampled
+    ))
+    agreed_hands = set.intersection(*(
+        {key for frame in sequence for key in _semantic_hands(frame.hands)}
+        for sequence in resampled
+    ))
     for index in range(CANONICAL_FRAMES):
         reference_frames = [
             _aggregate_frames(
@@ -1436,28 +1479,38 @@ def build_template(
             for groups in aligned_by_reference
             if groups[index]
         ]
-        canonical.append(
-            _aggregate_frames(
-                reference_frames,
-                timestamp_ms=round(
-                    canonical_duration * index / (CANONICAL_FRAMES - 1)
-                ),
-                minimum_presence=len(references) // 2 + 1,
-                # A brief YOLO loss in one example is filled by another
-                # example at the same phase instead of erasing that phase.
-                prop_minimum_presence=(len(references) + 1) // 2,
-            )
+        aggregated = _aggregate_frames(
+            reference_frames,
+            timestamp_ms=round(
+                canonical_duration * index / (CANONICAL_FRAMES - 1)
+            ),
+            # Dynamic examples are variability data: a brief Hands/Pose
+            # loss in one is filled by the other at the same phase.
+            minimum_presence=(
+                len(references) // 2 + 1 if static else (len(references) + 1) // 2
+            ),
+            # A brief YOLO loss in one example is filled by another
+            # example at the same phase instead of erasing that phase.
+            prop_minimum_presence=(len(references) + 1) // 2,
         )
+        if not static:
+            aggregated = replace(
+                aggregated,
+                pose={k: p for k, p in aggregated.pose.items() if k in agreed_pose},
+                hands={k: p for k, p in aggregated.hands.items() if k in agreed_hands},
+            )
+        canonical.append(aggregated)
     prop_coverage = sum(frame.prop is not None for frame in canonical) / CANONICAL_FRAMES
     # Same elapsed-time policy as each reference: a short miss leaves a few
     # unknown canonical frames (resampling never invents landmarks).
+    limits = tracking_limits(movement_behavior)
     for modality, side in [("prop_translation", None), *(("hands", s) for s in hand_sides),
                            *((("pose", None),) if "pose" in required else ())]:
         present = _presence(canonical, modality, hand_side=side)
         prop = modality == "prop_translation"
-        if (sum(present) / CANONICAL_FRAMES < (REFERENCE_MIN_PROP_COVERAGE if prop else MIN_COVERAGE)
+        if (sum(present) / CANONICAL_FRAMES < (limits["prop_coverage"] if prop else limits["coverage"])
                 or _longest_gap_ms(canonical, present)
-                > (REFERENCE_MAX_PROP_GAP_MS if prop else REFERENCE_MAX_GAP_MS)):
+                > (limits["prop_gap_ms"] if prop else limits["gap_ms"])):
             # Every example lost tracking in the same part of the movement.
             raise ReferenceQualityError(FailureCode.EXCESSIVE_TRACKING_GAP, {"input": modality})
     # Phase timing is learned from the original reference clocks. Detecting

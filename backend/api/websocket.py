@@ -62,6 +62,7 @@ from assessment.custom_movement.completion import (
     evaluate_completion as evaluate_custom_assessment_completion,
     estimate_sequence_progress as estimate_custom_sequence_progress,
     find_movement_start_index as find_custom_assessment_start_index,
+    live_completion_window as custom_live_completion_window,
 )
 from assessment.custom_movement.template_engine import (
     SequenceComparison as CustomSequenceComparison,
@@ -1629,9 +1630,12 @@ class VisionSession:
             )
         ):
             self._custom_assessment_last_evaluated_at = time.monotonic()
+            evaluation_started = time.perf_counter()
+            recent = tuple(custom_live_completion_window(self._custom_template, samples))
             progress = evaluate_custom_assessment_completion(
-                self._custom_template, tuple(samples)
+                self._custom_template, recent
             )
+            self.timings.add("custom_completion", time.perf_counter() - evaluation_started)
             if (
                 self._custom_template.movement_behavior != "static"
                 and progress != CUSTOM_ASSESSMENT_WAITING
@@ -1661,7 +1665,7 @@ class VisionSession:
             elif (progress == CUSTOM_ASSESSMENT_MOVING
                   and not self._custom_template.feature_capabilities.get("release_catch")
                   and self._custom_assessment_progress == CUSTOM_ASSESSMENT_MOVING):
-                if estimate_custom_sequence_progress(self._custom_template, samples) >= 0.70:
+                if estimate_custom_sequence_progress(self._custom_template, recent) >= 0.70:
                     self._set_custom_assessment_cue("finish_sequence")
                 elif self._custom_assessment_cue == "movement_detected":
                     self._set_custom_assessment_cue("keep_going")

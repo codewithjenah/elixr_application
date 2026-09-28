@@ -649,8 +649,9 @@ def test_unobserved_lead_in_does_not_poison_a_fully_observed_attempt():
 def test_dynamic_prolonged_required_detector_loss_is_unassessable(modality):
     template = _template(moving_pose=True)
     reference = _reference(moving_pose=True)
+    # 7 of 10 frames (30% coverage): beyond the dynamic temporary-gap tolerance.
     lost = tuple(replace(frame, **{modality: {} if modality != "prop" else None})
-                 if 3 <= index <= 7 else frame
+                 if 2 <= index <= 8 else frame
                  for index, frame in enumerate(reference))
     assert evaluate_completion(template, lost) != MOVEMENT_COMPLETED
     session = websocket_api.VisionSession(
