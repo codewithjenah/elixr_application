@@ -769,6 +769,8 @@ class _CustomMovementPracticeScreenState
         'Required movement tracking was lost during the recording. Keep the selected prop and required hand or body visible throughout the full movement, then try again.',
       'missing_modality' =>
         'The assessment did not receive all required tracking inputs. Keep the selected prop and required hand or body visible throughout the full movement, then try again.',
+      'prop_not_detected' =>
+        'The selected prop was not detected during the attempt. Keep the whole prop inside the camera view while performing the movement.',
       'insufficient_frames' =>
         'The movement was not captured long enough. Perform the full movement before the recording ends.',
       'invalid_timestamps' =>
@@ -816,6 +818,7 @@ class _CustomMovementPracticeScreenState
             'selected_camera_unavailable' ||
             'prepare_timeout' => _CustomFailureCategory.setup,
             'track_loss' ||
+            'prop_not_detected' ||
             'missing_modality' ||
             'insufficient_frames' ||
             'insufficient_hand_coverage' ||

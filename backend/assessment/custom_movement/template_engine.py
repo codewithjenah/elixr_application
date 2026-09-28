@@ -678,6 +678,81 @@ def validate_assessment_sequence(
     return ValidationResult(not codes, tuple(dict.fromkeys(codes)))
 
 
+def observed_hand_template(
+    template: MovementTemplate, samples: Sequence[FrameSample],
+) -> tuple[MovementTemplate, tuple[str, ...]] | None:
+    """Narrow a dynamic template to the required hand sides actually seen.
+
+    Used only to score an unfinished attempt: a learned hand that stayed out
+    of view is reported as missing evidence instead of discarding the other
+    hand, body and prop observations. Returns ``(template, missing_sides)``
+    or ``None`` when no required side was observed reliably.
+    """
+    sides = template.required_hand_sides
+    if template.movement_behavior != "dynamic" or len(sides) < 2:
+        return None
+    observed = tuple(side for side in sides
+                     if _coverage(samples, "hands", hand_side=side)[0] >= DYNAMIC_MIN_COVERAGE)
+    if not observed or observed == sides:
+        return None
+    capabilities = {**template.feature_capabilities,
+                    **{f"{side}_hand": side in observed for side in ("left", "right")}}
+    return (replace(template, feature_capabilities=capabilities),
+            tuple(side for side in sides if side not in observed))
+
+
+def longest_observable_segment(
+    samples: Sequence[FrameSample], template: MovementTemplate,
+) -> tuple[FrameSample, ...]:
+    """Longest run of a live attempt that passes assessment validation.
+
+    Frames inside a required-input gap longer than the behavior's tolerance
+    split the attempt; one long detector loss therefore cannot discard the
+    well-observed evidence around it. Returns ``()`` when no run is usable.
+    """
+    n = len(samples)
+    if n == 0:
+        return ()
+    limit = tracking_limits(template.movement_behavior)["gap_ms"]
+    checks = [(modality, side) for modality in template.required_modalities
+              for side in ((template.required_hand_sides or (None,)) if modality == "hands" else (None,))]
+    cut = [False] * n
+    for modality, side in checks:
+        present = _presence(samples, modality, hand_side=side)
+        index = 0
+        while index < n:
+            if present[index]:
+                index += 1
+                continue
+            end = index
+            while end < n and not present[end]:
+                end += 1
+            before = samples[index - 1].timestamp_ms if index > 0 else samples[0].timestamp_ms
+            after = samples[end].timestamp_ms if end < n else samples[-1].timestamp_ms
+            if after - before > limit:
+                cut[index:end] = [True] * (end - index)
+            index = end
+    segments: list[tuple[FrameSample, ...]] = []
+    current: list[FrameSample] = []
+    for frame, is_cut in zip(samples, cut):
+        if is_cut:
+            if current:
+                segments.append(tuple(current))
+            current = []
+        else:
+            current.append(frame)
+    if current:
+        segments.append(tuple(current))
+    usable = [
+        segment for segment in segments
+        if validate_assessment_sequence(
+            segment, template.required_modalities,
+            required_hand_sides=template.required_hand_sides, template=template,
+        ).valid
+    ]
+    return max(usable, key=lambda s: s[-1].timestamp_ms - s[0].timestamp_ms, default=())
+
+
 def _anchor_and_scale(
     frame: FrameSample,
     *,

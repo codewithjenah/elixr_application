@@ -138,6 +138,8 @@ from assessment.custom_movement.template_engine import (
     PropEventTracker,
     ReferenceQualityError,
     check_reference_integrity,
+    longest_observable_segment as custom_longest_observable_segment,
+    observed_hand_template as custom_observed_hand_template,
     minimum_references as custom_minimum_references,
     trailing_hold_window,
     validate_assessment_sequence,
@@ -521,7 +523,8 @@ def _human_error_message(error_code: str) -> str:
         "custom_capture_not_recording": "No movement reference is being recorded.",
         "custom_movement_not_detected": "No movement was detected. Perform the full movement while keeping the required inputs visible, then try again.",
         "custom_assessment_incomplete": "Movement was detected, but the full saved movement was not completed. Perform the complete sequence before the 30-second limit, then try again.",
-        "custom_position_not_detected": "The saved position was not detected. Move into the learned grip or stall and keep the required inputs visible.",
+        "prop_not_detected": "The selected prop was not detected during the attempt. Keep the whole prop inside the camera view while performing the movement.",
+        "custom_position_not_detected":"The saved position was not detected. Move into the learned grip or stall and keep the required inputs visible.",
         "custom_hold_incomplete": "The saved position was detected but not held steadily long enough. Hold it for about one second and try again.",
         "unstable_static_reference": "The ending position was not held steadily. Record each example with a steady final hold.",
         "inconsistent_static_references": "The ending positions differ between examples. Record the same grip or stall each time.",
@@ -1381,16 +1384,43 @@ class VisionSession:
                 raise ValueError("custom_capture_not_recording")
             completed = self._custom_assessment_progress == CUSTOM_ASSESSMENT_COMPLETED
             static = self._custom_template.movement_behavior == "static"
+            scored_segment: tuple[CustomFrameSample, ...] | None = None
+            scoring_template = self._custom_template
+            missing_hand_sides: tuple[str, ...] = ()
             if not completed and self._custom_assessment_progress != CUSTOM_ASSESSMENT_WAITING:
-                # Lost tracking is a camera/environment failure, not a scored
-                # attempt: reject it so the trainee can retry.
                 candidate = captured_samples[self._custom_assessment_movement_start_index or 0:]
                 observability = validate_assessment_sequence(
                     candidate, self._custom_template.required_modalities,
                     required_hand_sides=self._custom_template.required_hand_sides,
                     template=self._custom_template,
                 )
-                if not observability.valid and any(
+                if not observability.valid and not static:
+                    # One long detector loss must not discard the rest of a
+                    # dynamic attempt: score its longest well-observed run.
+                    scored_segment = custom_longest_observable_segment(
+                        candidate, self._custom_template,
+                    ) or None
+                    narrowed = (
+                        custom_observed_hand_template(self._custom_template, candidate)
+                        if scored_segment is None else None
+                    )
+                    if narrowed is not None:
+                        # A learned hand stayed out of view: score the hand,
+                        # body and prop that were observed and report the
+                        # missing hand instead of discarding the attempt.
+                        segment = custom_longest_observable_segment(candidate, narrowed[0])
+                        if segment:
+                            scored_segment = segment
+                            scoring_template, missing_hand_sides = narrowed
+                # Lost tracking with no usable run is a camera/environment
+                # failure, not a scored attempt: reject it so the trainee can retry.
+                if scored_segment is None and not observability.valid and not any(
+                    frame.prop is not None for frame in candidate
+                ):
+                    # The selected prop was never detected: say so instead of
+                    # a generic tracking-loss message.
+                    raise ValueError("prop_not_detected")
+                if scored_segment is None and not observability.valid and any(
                     code.value in {"missing_modality", "track_loss"}
                     for code in observability.codes
                 ):
@@ -1405,7 +1435,7 @@ class VisionSession:
                     else "custom_hold_incomplete"
                 )
             start_index = self._custom_assessment_movement_start_index or 0
-            samples = captured_samples[start_index:]
+            samples = scored_segment or captured_samples[start_index:]
             if static:
                 samples = trailing_hold_window(samples)
             if not samples:
@@ -1428,7 +1458,9 @@ class VisionSession:
                 # the captured evidence: no detected movement or unusable
                 # evidence scores 0, and a partial attempt is capped below
                 # competent so an incomplete sequence cannot pass.
-                result = self._score_incomplete_custom_assessment(samples)
+                result = self._score_incomplete_custom_assessment(
+                    samples, template=scoring_template,
+                )
             payload = result.to_dict()
             payload["movement_completed"] = completed
             payload["max_total"] = 12
@@ -1446,6 +1478,12 @@ class VisionSession:
                     "Time expired before the full movement was completed."
                     if self._custom_assessment_progress != CUSTOM_ASSESSMENT_WAITING
                     else "Time expired before the saved movement was detected."
+                ))
+            for side in missing_hand_sides:
+                payload["feedback"].insert(1, (
+                    f"The {side} hand was not visible enough; the saved movement "
+                    "uses both hands, so this attempt was scored on the hand, body, "
+                    "and prop that were observed."
                 ))
             for name, score in result.component_scores.items():
                 if score is not None and score <= 1:
@@ -1480,9 +1518,11 @@ class VisionSession:
         finally:
             self._release_ai_state()
 
-    def _score_incomplete_custom_assessment(self, samples) -> CustomSequenceComparison:
+    def _score_incomplete_custom_assessment(
+        self, samples, *, template: CustomMovementTemplate | None = None,
+    ) -> CustomSequenceComparison:
         """Score a dynamic attempt whose timer expired before completion."""
-        template = self._custom_template
+        template = template or self._custom_template
         result = compare_custom_movement_sequence(template, samples, assessment=True)
         if (
             self._custom_assessment_progress == CUSTOM_ASSESSMENT_WAITING

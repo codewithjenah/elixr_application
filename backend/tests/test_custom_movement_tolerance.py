@@ -559,3 +559,58 @@ def test_one_static_reference_session_builds_and_diagnostics_travel_in_ack():
 ))
 def test_every_authoring_code_has_specific_guidance(code):
     assert websocket_api._human_error_message(code) != "The WebSocket command was rejected."
+
+
+def test_one_long_prop_gap_does_not_discard_a_timed_out_dynamic_attempt(arc_template):
+    # Field case: 30 s at ~9 FPS, good overall coverage, one 1.4 s YOLO loss.
+    from assessment.custom_movement.completion import MOVEMENT_DETECTED
+
+    attempt = _arc(reach=0.35, tail=40, prop_miss=set(range(30, 44)))
+    session = _assessment_session(arc_template, attempt, MOVEMENT_DETECTED)
+    payload = session.finish_custom_assessment()
+    session.close()
+    assert payload["movement_completed"] is False
+    assert 0 < payload["total"] <= websocket_api._CUSTOM_INCOMPLETE_MAX_TOTAL
+
+
+def test_attempt_where_the_prop_is_never_seen_reports_prop_not_detected(arc_template):
+    # Field case: the bottle stayed out of view (0% YOLO confirmation).
+    from assessment.custom_movement.completion import MOVEMENT_DETECTED
+
+    session = _assessment_session(arc_template, _arc(prop=False, tail=40), MOVEMENT_DETECTED)
+    with pytest.raises(ValueError, match="prop_not_detected"):
+        session.finish_custom_assessment()
+    session.close()
+    assert "prop was not detected" in websocket_api._human_error_message("prop_not_detected")
+
+
+def _two_hand(samples):
+    """Add a mirrored right hand to each frame that has a left hand."""
+    return tuple(replace(frame, hands={
+        **frame.hands,
+        **{key.replace("left", "right"): Landmark(point.x + 0.2, point.y)
+           for key, point in frame.hands.items()},
+    }) for frame in samples)
+
+
+def test_one_hand_attempt_of_a_two_hand_movement_is_scored_not_rejected():
+    # Field case: template learned both hands; the left hand was seen 3%.
+    from assessment.custom_movement.completion import MOVEMENT_DETECTED
+
+    template = build_template([_two_hand(_arc()), _two_hand(_arc(count=18, interval=110))])
+    assert template.required_hand_sides == ("left", "right")
+    right_only = tuple(replace(frame, hands={k: p for k, p in frame.hands.items()
+                                             if k.startswith("right")})
+                       for frame in _two_hand(_arc(tail=20)))
+    session = _assessment_session(template, right_only, MOVEMENT_DETECTED)
+    payload = session.finish_custom_assessment()
+    session.close()
+    assert payload["movement_completed"] is False
+    assert 0 < payload["total"] <= websocket_api._CUSTOM_INCOMPLETE_MAX_TOTAL
+    assert any("left hand was not visible" in line for line in payload["feedback"])
+    # With no hand at all it is still unassessable.
+    no_hands = tuple(replace(frame, hands={}) for frame in right_only)
+    session = _assessment_session(template, no_hands, MOVEMENT_DETECTED)
+    with pytest.raises(ValueError, match="missing_modality|track_loss"):
+        session.finish_custom_assessment()
+    session.close()
