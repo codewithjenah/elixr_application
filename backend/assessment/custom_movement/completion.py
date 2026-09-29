@@ -30,6 +30,7 @@ from .template_engine import (
     sequence_motion,
     static_frame_matches,
     static_match_modalities,
+    dynamic_prop_gap_policy,
     trailing_hold_window,
     validate_assessment_sequence,
 )
@@ -253,9 +254,15 @@ def _sequence_range(sequence: _PreparedSequence, modality: str) -> float:
 
 
 def _sequence_path_length(
-    sequence: _PreparedSequence, modality: str, *, bridge_gap_ms: int = 0
+    sequence: _PreparedSequence, modality: str, *, bridge_gap_ms: int = 0,
+    certified_gaps: frozenset[tuple[int, int]] = frozenset(),
 ) -> float:
-    """Sum observed travel; across a short miss use only endpoint displacement."""
+    """Sum observed travel; across a short miss use only endpoint displacement.
+
+    ``certified_gaps`` holds ``(before_ms, after_ms)`` prop gaps that
+    ``dynamic_prop_gap_policy`` certified as airborne detector loss; they are
+    bridged by the same endpoint displacement (never interpolated frames).
+    """
     total = 0.0
     previous: tuple[int, FrameSample] | None = None
     for index, frame in enumerate(sequence.frames):
@@ -266,7 +273,8 @@ def _sequence_path_length(
             previous_index, previous_frame = previous
             if (index == previous_index + 1 or
                     (bridge_gap_ms > 0 and
-                     frame.timestamp_ms - previous_frame.timestamp_ms <= bridge_gap_ms)):
+                     frame.timestamp_ms - previous_frame.timestamp_ms <= bridge_gap_ms) or
+                    (previous_frame.timestamp_ms, frame.timestamp_ms) in certified_gaps):
                 error = sequence.error(previous_index, sequence, index, modality)
                 if error is not None:
                     total += error
@@ -626,6 +634,10 @@ def evaluate_completion_segment(
         use_pose_anchor="pose" in required,
         required_hand_sides=template.required_hand_sides,
     ), list(thresholds))
+    # Certified on the raw (image-space) bounded frames, whose timestamps the
+    # normalized candidates share; only the prop path may bridge them.
+    certified_gaps = (frozenset(dynamic_prop_gap_policy(bounded).certified_gaps)
+                      if "prop_translation" in thresholds else frozenset())
     offset = 0
     best: tuple[str, int | None] = (WAITING_FOR_MOVEMENT, None)
     tried: set[int] = set()
@@ -638,7 +650,8 @@ def evaluate_completion_segment(
         start += offset
         tried.add(start)
         screened = _screen_dynamic_candidate(
-            template, samples, normalized, reference, start, thresholds)
+            template, samples, normalized, reference, start, thresholds,
+            certified_gaps)
         # A gate-passing onset is reported as in progress unless alignment and
         # observability confirm it below, exactly like a failed alignment.
         if isinstance(screened, str):
@@ -667,7 +680,8 @@ def evaluate_completion_segment(
                 template, reference, normalized, start, list(thresholds))):
             continue
         screened = _screen_dynamic_candidate(
-            template, samples, normalized, reference, start, thresholds)
+            template, samples, normalized, reference, start, thresholds,
+            certified_gaps)
         if not isinstance(screened, str):
             viable.append(screened)
     # Bounded alignment: the candidates whose path length best matches the
@@ -770,6 +784,7 @@ def _screen_dynamic_candidate(
     reference: _ReferenceContext,
     movement_start: int,
     thresholds: Mapping[str, float],
+    certified_gaps: frozenset[tuple[int, int]] = frozenset(),
 ) -> str | _ScreenedCandidate:
     """Cheap motion gates for one candidate beginning at ``movement_start``.
 
@@ -826,7 +841,9 @@ def _screen_dynamic_candidate(
     for modality in moving_modalities:
         expected_range = reference.range[modality]
         expected_path = reference.path[modality]
-        observed_path = _sequence_path_length(candidate, modality, bridge_gap_ms=450)
+        observed_path = _sequence_path_length(
+            candidate, modality, bridge_gap_ms=450,
+            certified_gaps=certified_gaps if modality == "prop_translation" else frozenset())
         start_error = next(
             (error for j in range(min(3, len(candidate)))
              if (error := learned.error(0, candidate, j, modality)) is not None),

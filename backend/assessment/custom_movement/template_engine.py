@@ -500,6 +500,99 @@ def _longest_gap_ms(samples: Sequence[FrameSample], present: Sequence[bool]) -> 
     return longest
 
 
+# Dynamic toss tolerance. A tossed bottle is often lost by YOLO while it is
+# airborne (motion blur, leaving the frame top). Such a gap is UNKNOWN
+# evidence, not wrong movement, but only when real observations bracket it:
+# the prop was visibly moving into the gap, was seen again after it (same
+# track, if tracked), and the whole gap is bounded. Missing frames stay
+# missing; this only decides whether a gap vetoes an otherwise observed clip.
+DYNAMIC_TOSS_MAX_GAP_MS = 2000
+DYNAMIC_TOSS_MIN_SIDE_SAMPLES = 2
+# Image-fraction travel across the observations entering the gap.
+DYNAMIC_TOSS_MIN_ENTRY_MOTION = 0.03
+# Real prop evidence still has to be a meaningful share of the whole clip.
+DYNAMIC_TOSS_MIN_RAW_PROP_COVERAGE = 0.25
+
+
+@dataclass(frozen=True)
+class PropGapPolicy:
+    """Prop observability after excusing certified dynamic toss gaps."""
+
+    longest_uncertified_gap_ms: int
+    excused_frames: int
+    # (last observation before, first observation after) timestamps.
+    certified_gaps: tuple[tuple[int, int], ...]
+
+    def required_coverage(self, base: float, frame_count: int) -> float:
+        """``base`` over the frames not inside a certified toss gap."""
+        if not self.excused_frames or not frame_count:
+            return base
+        return max(DYNAMIC_TOSS_MIN_RAW_PROP_COVERAGE,
+                   base * (frame_count - self.excused_frames) / frame_count)
+
+
+def _run_moves(frames: Sequence[FrameSample], min_motion: float) -> bool:
+    points = [frame.prop for frame in frames]
+    return any(math.hypot(b.x - a.x, b.y - a.y) >= min_motion  # type: ignore[union-attr]
+               for i, a in enumerate(points) for b in points[i + 1:])
+
+
+def dynamic_prop_gap_policy(
+    samples: Sequence[FrameSample],
+    *,
+    min_entry_motion: float = DYNAMIC_TOSS_MIN_ENTRY_MOTION,
+) -> PropGapPolicy:
+    """Classify each prop gap as a certified airborne gap or bad tracking.
+
+    Certification needs, on real observations only: at least
+    ``DYNAMIC_TOSS_MIN_SIDE_SAMPLES`` consecutive usable props immediately
+    before and after the gap, prop travel of ``min_entry_motion`` across the
+    observations entering the gap (a set-down bottle cannot qualify), no
+    prop track-id change across the gap, and an elapsed gap of at most
+    ``DYNAMIC_TOSS_MAX_GAP_MS``. Leading/trailing gaps are never certified.
+    """
+    present = _presence(samples, "prop_translation")
+    n = len(samples)
+    if not any(present):
+        return PropGapPolicy(_longest_gap_ms(samples, present), 0, ())
+    longest = 0
+    excused = 0
+    certified: list[tuple[int, int]] = []
+    index = 0
+    while index < n:
+        if present[index]:
+            index += 1
+            continue
+        end = index
+        while end < n and not present[end]:
+            end += 1
+        before = samples[index - 1].timestamp_ms if index > 0 else samples[0].timestamp_ms
+        after = samples[end].timestamp_ms if end < n else samples[-1].timestamp_ms
+        elapsed = after - before
+        ok = 0 < index and end < n and elapsed <= DYNAMIC_TOSS_MAX_GAP_MS
+        if ok:
+            lead = index
+            while lead > 0 and present[lead - 1] and index - lead < 3:
+                lead -= 1
+            tail = end
+            while tail < n and present[tail] and tail - end < DYNAMIC_TOSS_MIN_SIDE_SAMPLES:
+                tail += 1
+            entry, exit_ = samples[lead:index], samples[end:tail]
+            before_id = samples[index - 1].prop_metadata.get("track_id")
+            after_id = samples[end].prop_metadata.get("track_id")
+            ok = (len(entry) >= DYNAMIC_TOSS_MIN_SIDE_SAMPLES
+                  and len(exit_) >= DYNAMIC_TOSS_MIN_SIDE_SAMPLES
+                  and (before_id is None or after_id is None or before_id == after_id)
+                  and _run_moves(entry, min_entry_motion))
+        if ok:
+            certified.append((before, after))
+            excused += end - index
+        else:
+            longest = max(longest, elapsed)
+        index = end
+    return PropGapPolicy(longest, excused, tuple(certified))
+
+
 def reference_quality(
     samples: Sequence[FrameSample],
     *,
@@ -517,6 +610,15 @@ def reference_quality(
     static = movement_behavior == "static"
     hold = trailing_hold_window(samples) if static else ()
     limits = tracking_limits(movement_behavior)
+    prop_gap_ms = _longest_gap_ms(samples, _presence(samples, "prop_translation"))
+    required_prop_coverage = limits["prop_coverage"]
+    if not static:
+        # A certified airborne gap is unknown evidence: it is excluded from
+        # the gap limit and the coverage denominator, never filled in.
+        policy = dynamic_prop_gap_policy(samples)
+        prop_gap_ms = policy.longest_uncertified_gap_ms
+        required_prop_coverage = round(
+            policy.required_coverage(limits["prop_coverage"], len(samples)), 3)
     return {
         "duration_ms": clip_duration_ms if clip_duration_ms is not None else span,
         "required_duration_ms": MIN_REFERENCE_DURATION_MS,
@@ -531,8 +633,8 @@ def reference_quality(
         "right_hand_coverage": round(right, 3),
         "pose_coverage": round(_coverage(samples, "pose")[0], 3),
         "prop_coverage": round(_coverage(samples, "prop_translation")[0], 3),
-        "required_prop_coverage": limits["prop_coverage"],
-        "longest_tracking_gap_ms": _longest_gap_ms(samples, _presence(samples, "prop_translation")),
+        "required_prop_coverage": required_prop_coverage,
+        "longest_tracking_gap_ms": prop_gap_ms,
         "maximum_tracking_gap_ms": limits["prop_gap_ms"],
         "required_hold_ms": STATIC_HOLD_MS if static else None,
     }
@@ -668,6 +770,15 @@ def validate_assessment_sequence(
                     for frame in samples
                 ]
             coverage = sum(present) / len(samples) if samples else 0.0
+            if dynamic and modality == "prop_translation" and samples:
+                # Same certified-toss rule as authoring; other gaps and the
+                # other inputs keep the dynamic limits below.
+                policy = dynamic_prop_gap_policy(samples)
+                if coverage < policy.required_coverage(min_coverage, len(samples)):
+                    codes.append(FailureCode.MISSING_MODALITY)
+                if policy.longest_uncertified_gap_ms > max_gap_ms or not any(present):
+                    codes.append(FailureCode.TRACK_LOSS)
+                continue
             if coverage < min_coverage:
                 codes.append(FailureCode.MISSING_MODALITY)
             last_seen: int | None = None
@@ -958,8 +1069,20 @@ class PropEventTracker:
         )
         track_id = frame.prop_metadata.get("track_id")
         previous_prop = self.prior_prop
-        if (self.prior_timestamp is not None
-                and frame.timestamp_ms - self.prior_timestamp > 250):
+        elapsed = (frame.timestamp_ms - self.prior_timestamp
+                   if self.prior_timestamp is not None else None)
+        if (elapsed is not None and 250 < elapsed <= DYNAMIC_TOSS_MAX_GAP_MS
+                and (self.released or self.airborne) and self.prior_prop is None
+                and (track_id is None or self.prior_track_id is None
+                     or track_id == self.prior_track_id)):
+            # An already observed release/flight survives a bounded detector
+            # miss (a blurred airborne bottle). Nothing is inferred for the
+            # unobserved interval: no apex, and a catch still needs fresh
+            # stable contact observed after reacquisition.
+            self.contact_run = 0
+            self.away_run = 0
+            self.prior_velocity = None
+        elif elapsed is not None and elapsed > 250:
             # A new visible location after a long unknown interval cannot
             # establish the transition from the old held/flight state.
             self.held = self.released = self.airborne = False
@@ -1613,9 +1736,17 @@ def build_template(
                            *((("pose", None),) if "pose" in required else ())]:
         present = _presence(canonical, modality, hand_side=side)
         prop = modality == "prop_translation"
-        if (sum(present) / CANONICAL_FRAMES < (limits["prop_coverage"] if prop else limits["coverage"])
-                or _longest_gap_ms(canonical, present)
-                > (limits["prop_gap_ms"] if prop else limits["gap_ms"])):
+        required_coverage = limits["prop_coverage"] if prop else limits["coverage"]
+        gap_ms = _longest_gap_ms(canonical, present)
+        if prop and not static:
+            # Every example lost the bottle at the same airborne phase; each
+            # reference already certified that gap on real image motion, so
+            # only the bracketing/bounds are re-checked in canonical units.
+            policy = dynamic_prop_gap_policy(canonical, min_entry_motion=0.0)
+            required_coverage = policy.required_coverage(required_coverage, CANONICAL_FRAMES)
+            gap_ms = policy.longest_uncertified_gap_ms
+        if (sum(present) / CANONICAL_FRAMES < required_coverage
+                or gap_ms > (limits["prop_gap_ms"] if prop else limits["gap_ms"])):
             # Every example lost tracking in the same part of the movement.
             raise ReferenceQualityError(FailureCode.EXCESSIVE_TRACKING_GAP, {"input": modality})
     # Phase timing is learned from the original reference clocks. Detecting

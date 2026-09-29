@@ -628,3 +628,136 @@ def test_dtw_normalises_hands_per_frame_not_per_cell(monkeypatch):
     reference, candidate = _dtw_sequence(32), _dtw_sequence(64)
     template_engine._dtw(reference, candidate, ("hands", "pose", "prop_translation"))
     assert len(calls) == 32 + 64
+
+
+# --- Dynamic toss: bounded airborne detector gap ------------------------------
+
+_TOSS_GAP = frozenset(range(8, 20))  # 700 -> 2000 ms: above the old 1200 ms limit
+
+
+def _toss(*, miss=(), count=30, interval=100, stationary_prop=False, reverse=False,
+          prop=True, track_ids=None):
+    import math as _math
+
+    frames = []
+    for i in range(count):
+        u = (count - 1 - i) if reverse else i
+        x = .2 + .02 * u
+        hand = Landmark(x, .42)
+        if stationary_prop:
+            point = Landmark(.2, .40)
+        else:
+            lift = .3 * _math.sin(_math.pi * (u - 6) / 14) if 6 <= u <= 20 else 0.0
+            point = Landmark(x, .40 - lift)
+        metadata = {"track_id": track_ids(i)} if track_ids else {}
+        frames.append(FrameSample(
+            i * interval,
+            pose={"11": Landmark(.3, .3), "12": Landmark(.7, .3), "15": Landmark(x, .45)},
+            hands={"left": hand},
+            prop=None if (not prop or i in miss) else point,
+            prop_metadata=metadata,
+        ))
+    return tuple(frames)
+
+
+def test_dynamic_reference_accepts_bracketed_airborne_gap():
+    from assessment.custom_movement.template_engine import (
+        ReferenceQualityError, check_reference_integrity, dynamic_prop_gap_policy,
+    )
+
+    short = _toss(miss=frozenset(range(9, 16)))
+    long = _toss(miss=_TOSS_GAP)
+    for clip in (short, long):
+        assert dynamic_prop_gap_policy(clip).certified_gaps
+        check_reference_integrity(clip, clip_duration_ms=3000)
+    # The gap frames stay missing in the stored evidence.
+    assert all(long[i].prop is None for i in _TOSS_GAP)
+    template = build_template([long, _toss(miss=frozenset(range(9, 19)))])
+    assert template.movement_behavior == "dynamic"
+    assert "prop_translation" in template.required_modalities
+    # Static references keep their strict limits for the same gap.
+    with pytest.raises(ReferenceQualityError, match="excessive_tracking_gap"):
+        check_reference_integrity(long, clip_duration_ms=3000, movement_behavior="static")
+
+
+@pytest.mark.parametrize("clip", (
+    _toss(miss=frozenset(range(3, 28))),            # bottle missing for most of the clip
+    _toss(miss=frozenset(range(10, 30))),           # visible, then gone for good
+    _toss(miss=_TOSS_GAP, stationary_prop=True),    # hands move, bottle does not
+    _toss(miss=_TOSS_GAP, track_ids=lambda i: 1 if i < 8 else 2),  # identity switch
+    _toss(miss=frozenset(range(8, 30, 1)) - {21}),  # one stray detection is not reacquisition
+    _toss(miss=frozenset(range(6, 28))),            # gap longer than the toss bound
+))
+def test_dynamic_reference_rejects_uncertified_prop_loss(clip):
+    from assessment.custom_movement.template_engine import (
+        ReferenceQualityError, check_reference_integrity,
+    )
+
+    with pytest.raises(ReferenceQualityError):
+        check_reference_integrity(clip, clip_duration_ms=3000)
+
+
+def _flight(*, gap_after, interval=100, gap_ms=600, track_ids=(None, None)):
+    hand = {"left": Landmark(0, 0)}
+    frames = [FrameSample(i * interval, hands=hand, prop=Landmark(0, 0),
+                          prop_metadata={"track_id": track_ids[0]} if track_ids[0] else {})
+              for i in range(3)]
+    t = 3 * interval
+    for x, y in ((.4, -.04), (.6, -.10))[:gap_after]:
+        frames.append(FrameSample(t, hands=hand, prop=Landmark(x, y),
+                                  prop_metadata={"track_id": track_ids[0]} if track_ids[0] else {}))
+        t += interval
+    frames.append(FrameSample(t, hands=hand, prop=None))
+    t += gap_ms
+    for _ in range(3):
+        frames.append(FrameSample(t, hands=hand, prop=Landmark(0, 0),
+                                  prop_metadata={"track_id": track_ids[1]} if track_ids[1] else {}))
+        t += interval
+    return tuple(frames)
+
+
+def test_prop_events_keep_observed_flight_across_bounded_miss():
+    kinds = [e.kind for e in detect_prop_events(_flight(gap_after=2))]
+    assert kinds.index("release") < kinds.index("airborne") < kinds.index("catch")
+    assert "apex" not in kinds  # never invented inside the unobserved interval
+
+
+def test_prop_events_never_fabricate_flight_from_disappearance():
+    # Held bottle vanishes and returns to the hand: no release/flight/catch.
+    kinds = [e.kind for e in detect_prop_events(_flight(gap_after=0))]
+    assert not {"release", "airborne", "catch"} & set(kinds)
+    # Observed flight, then an unreasonably long unknown interval.
+    long = [e.kind for e in detect_prop_events(_flight(gap_after=2, gap_ms=3000))]
+    assert "catch" not in long
+    # Identity switch across the miss still clears continuity.
+    switched = [e.kind for e in detect_prop_events(_flight(gap_after=2, track_ids=(1, 2)))]
+    assert "catch" not in switched
+
+
+def _toss_template():
+    return build_template([_toss(), _toss(interval=110), _toss(miss=_TOSS_GAP)])
+
+
+def test_live_toss_with_airborne_dropout_completes():
+    from assessment.custom_movement.completion import MOVEMENT_COMPLETED, evaluate_completion
+
+    template = _toss_template()
+    attempt = _toss(miss=_TOSS_GAP)
+    assert not validate_assessment_sequence(attempt, ("prop_translation",)).valid
+    assert validate_assessment_sequence(
+        attempt, template.required_modalities,
+        required_hand_sides=template.required_hand_sides, template=template).valid
+    assert evaluate_completion(template, attempt) == MOVEMENT_COMPLETED
+
+
+@pytest.mark.parametrize("attempt", (
+    _toss(prop=False),                               # body/hands only, no bottle
+    _toss(miss=_TOSS_GAP, stationary_prop=True),     # set-down bottle
+    _toss(miss=_TOSS_GAP, reverse=True),             # reversed movement
+    _toss(miss=frozenset(range(8, 30))),             # bottle never returns
+    _toss(miss=_TOSS_GAP, track_ids=lambda i: 1 if i < 8 else 2),
+))
+def test_live_toss_dropout_does_not_excuse_invalid_attempts(attempt):
+    from assessment.custom_movement.completion import MOVEMENT_COMPLETED, evaluate_completion
+
+    assert evaluate_completion(_toss_template(), attempt) != MOVEMENT_COMPLETED
