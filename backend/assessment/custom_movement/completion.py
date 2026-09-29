@@ -1008,6 +1008,9 @@ class _ScreenedCandidate:
     path_mismatch: float
     quorum: int
     tolerance: float
+    # The prop passed every cheap gate: its aligned shape alone completes the
+    # candidate; otherwise the aligned modality majority (``quorum``) must.
+    prop_led: bool = False
 
 
 def _screen_dynamic_candidate(
@@ -1127,10 +1130,17 @@ def _screen_dynamic_candidate(
                       and sustained
                       and _same_movement(directional, progress, phase_progress, min_progress)),
         ))
+    # Prop-led: when the learned bottle path passes every gate, it is the
+    # movement's identity and must also align in shape; pose/hands then only
+    # add evidence, so a different body or grip technique lowers the score in
+    # compare_sequence instead of vetoing completion. Otherwise the modality
+    # majority applies (with ``_prop_follows`` below still binding the prop).
+    prop_led = any(item.modality == "prop_translation" and item.complete
+                   for item in evidence)
     # Alignment can only fail a modality, never pass one these gates rejected,
     # so a candidate short of the quorum here can never complete.
     quorum = len(moving_modalities) // 2 + 1 if len(moving_modalities) > 2 else 1
-    if sum(item.complete for item in evidence) < quorum:
+    if not prop_led and sum(item.complete for item in evidence) < quorum:
         return MOVEMENT_DETECTED
     # Prop presence is enforced by live validation. A learned prop path must
     # show real travel (not a set-down prop) that roughly follows the learned
@@ -1148,6 +1158,7 @@ def _screen_dynamic_candidate(
         path_mismatch=sum(abs(math.log(item.path_ratio)) for item in gated) / len(gated),
         quorum=quorum,
         tolerance=_MAX_ALIGNED_MOTION_ERROR * tolerance_scale,
+        prop_led=prop_led,
     )
 
 
@@ -1159,6 +1170,7 @@ def _aligned_fit(screened: _ScreenedCandidate, reference: _ReferenceContext) -> 
     ``_observable`` on the candidate's source.
     """
     aligned: list[float] = []
+    prop_aligned = False
     for modality in screened.gated:
         centred_reference = reference.centred[modality]
         # Centre on the full candidate, then stride; path indexes below
@@ -1173,7 +1185,8 @@ def _aligned_fit(screened: _ScreenedCandidate, reference: _ReferenceContext) -> 
         ]
         if errors and sum(errors) / len(errors) <= screened.tolerance:
             aligned.append(sum(errors) / len(errors))
-    if len(aligned) < screened.quorum:
+            prop_aligned = prop_aligned or modality == "prop_translation"
+    if not (screened.prop_led and prop_aligned) and len(aligned) < screened.quorum:
         return None
     return sum(aligned) / len(aligned)
 

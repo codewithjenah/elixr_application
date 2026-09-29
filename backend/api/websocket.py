@@ -842,11 +842,15 @@ class VisionSession:
             readiness_profile_for(movement, prop_type, readiness_spec).requirements
             if self._is_custom_capture else ()
         )
-        # Reference authoring needs dense detector observations, so capture
-        # runs YOLO every AI tick. Assessment uses the configured cadence to
-        # avoid unnecessary inference load; skipped ticks only reuse cached
-        # boxes, and coasted (unconfirmed) boxes never become sample evidence.
-        self._yolo_frame_skip = 1 if self._is_custom_capture else YOLO_FRAME_SKIP
+        # Custom capture and assessment both need dense detector observations,
+        # so they run YOLO every AI tick. Only YOLO-attempted ticks become prop
+        # evidence, so a skip cadence would leave assessment samples at most
+        # 1/skip prop coverage: at skip 2 one real miss drops a correct
+        # dynamic attempt below DYNAMIC_MIN_COVERAGE (0.50), a static hold can
+        # never reach MIN_COVERAGE (0.70), and no airborne gap can certify
+        # (two consecutive observations per side). Coasted boxes are still
+        # never sample evidence.
+        self._yolo_frame_skip = 1 if self._is_custom else YOLO_FRAME_SKIP
         if self._is_freestyle:
             diagnostics_mode = "freestyle"
         elif self._is_custom:

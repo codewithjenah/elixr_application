@@ -387,6 +387,25 @@ def test_incorrect_dynamic_attempts_still_do_not_complete(arc_template):
     assert evaluate_completion(arc_template, set_down) != MOVEMENT_COMPLETED
 
 
+def _yolo_every_other_tick(samples, miss=()):
+    """Prop evidence as a YOLO skip cadence of 2 records it (odd ticks unrun)."""
+    return tuple(replace(
+        frame, prop=frame.prop if i % 2 == 0 and i not in miss else None,
+        prop_metadata={**frame.prop_metadata, "yolo_attempted": i % 2 == 0},
+    ) for i, frame in enumerate(samples))
+
+
+def test_dense_prop_evidence_tolerates_isolated_yolo_misses(arc_template):
+    # Assessment runs YOLO every tick (as at the known-good baseline), so a
+    # few real misses in a correct attempt stay well inside the coverage rule.
+    assert evaluate_completion(arc_template, _arc(prop_miss={4, 9, 15})) == MOVEMENT_COMPLETED
+    # Regression: at half-density evidence one real miss vetoed the same
+    # correct attempt, which is why assessment must not skip YOLO ticks.
+    assert evaluate_completion(arc_template, _yolo_every_other_tick(_arc())) == MOVEMENT_COMPLETED
+    assert evaluate_completion(
+        arc_template, _yolo_every_other_tick(_arc(), miss={8})) != MOVEMENT_COMPLETED
+
+
 def test_similarity_sets_the_dynamic_score_not_whether_it_completes(arc_template):
     close = _arc()
     weaker = _arc(start=(0.06, 0.05))
@@ -789,6 +808,90 @@ def test_invalid_attempts_do_not_complete_or_earn_the_floor(arc_template, attemp
     assert payload["score_percent"] == round(payload["total"] * 100 / 12, 1) <= 50
     assert "raw_total" not in payload
     assert payload["assessment_outcome"] == "needs_improvement"
+
+
+# --- Prop-led dynamic completion: bottle path is identity, body/hands score -----
+
+def _unrelated_pose(samples):
+    """Elbow parked elsewhere and a wrist that bobs unlike the learned arc."""
+    return tuple(replace(frame, pose={
+        **frame.pose, "13": Landmark(0.30, 0.50), "15": Landmark(0.32, 0.55 + 0.1 * math.sin(k)),
+    }) for k, frame in enumerate(samples))
+
+
+def _unrelated_hands(samples):
+    """A hand travelling down-left with another grip while the prop arcs."""
+    return tuple(replace(frame, hands=_hand(0.60 - 0.006 * k, 0.60 + 0.004 * k, 0.55 - 0.006 * k))
+                 for k, frame in enumerate(samples))
+
+
+def _translate(samples, dx, dy):
+    move = lambda p: Landmark(p.x + dx, p.y + dy)  # noqa: E731
+    return tuple(replace(
+        frame,
+        pose={k: move(p) for k, p in frame.pose.items()},
+        hands={k: move(p) for k, p in frame.hands.items()},
+        prop=move(frame.prop) if frame.prop else None,
+    ) for frame in samples)
+
+
+@pytest.mark.parametrize("attempt", (
+    _arc(),
+    _unrelated_pose(_arc()),
+    _unrelated_hands(_arc()),
+    _unrelated_hands(_unrelated_pose(_arc())),
+    _translate(_unrelated_hands(_unrelated_pose(_arc())), -0.2, 0.15),
+    _retime(_unrelated_hands(_unrelated_pose(_arc())), 160),
+    _retime(_unrelated_hands(_unrelated_pose(_arc())), 70),
+    _unrelated_hands(_unrelated_pose(_arc(prop_miss=set(range(6, 12))))),
+))
+def test_prop_valid_attempt_completes_despite_different_body_and_hands(arc_template, attempt):
+    assert evaluate_completion(arc_template, attempt) == MOVEMENT_COMPLETED
+
+
+def test_different_body_and_hands_complete_but_score_below_exact(arc_template):
+    mismatched = _unrelated_hands(_unrelated_pose(_arc()))
+    raw = compare_sequence(arc_template, mismatched, assessment=True)
+    exact = compare_sequence(arc_template, _arc(), assessment=True)
+    assert 0 < raw.total < exact.total
+    progress, payload = _finish(arc_template, mismatched)
+    assert progress == MOVEMENT_COMPLETED
+    _assert_coherent_completed(payload, raw)
+    assert 70 <= payload["score_percent"] < 100
+
+
+def _with_prop(samples, prop_of):
+    return tuple(replace(frame, prop=prop_of(k, frame)) for k, frame in enumerate(samples))
+
+
+@pytest.mark.parametrize("attempt", (
+    # Stationary bottle while body and hand perform the arc.
+    _with_prop(_arc(), lambda k, f: Landmark(0.42, 0.50)),
+    # Detector jitter only.
+    _with_prop(_arc(), lambda k, f: Landmark(0.42 + 0.004 * _noise(k, 8), 0.50 + 0.004 * _noise(k, 9))),
+    # Reversed bottle travel.
+    _with_prop(_arc(), lambda k, f: Landmark(0.84 - f.prop.x, f.prop.y)),
+    # Perpendicular bottle travel of similar path length (straight down).
+    _with_prop(_arc(), lambda k, f: Landmark(0.42, 0.50 + 0.0075 * k)),
+    # Bottle missing for most of the attempt (beyond the gap policy).
+    _with_prop(_arc(), lambda k, f: f.prop if k < 4 else None),
+))
+def test_prop_led_completion_still_rejects_invalid_bottle_paths(arc_template, attempt):
+    for body in (attempt, _unrelated_hands(_unrelated_pose(attempt))):
+        assert evaluate_completion(arc_template, body) != MOVEMENT_COMPLETED
+
+
+@pytest.mark.parametrize("attempt", (
+    # Clearly too little bottle travel.
+    _with_prop(_arc(), lambda k, f: Landmark(0.42 + 0.25 * (f.prop.x - 0.42), f.prop.y)),
+    # Set down half-way: only an incomplete execution.
+    _with_prop(_arc(), lambda k, f: f.prop if k < 7 else _arc()[6].prop),
+))
+def test_weak_bottle_path_cannot_complete_on_prop_evidence_alone(arc_template, attempt):
+    # A matching body+hand majority keeps its existing (unchanged) path; the
+    # prop-led path alone must not accept a short or abandoned bottle path.
+    mismatched = _unrelated_hands(_unrelated_pose(attempt))
+    assert evaluate_completion(arc_template, mismatched) != MOVEMENT_COMPLETED
 
 
 def _bend_elbow(samples, degrees):

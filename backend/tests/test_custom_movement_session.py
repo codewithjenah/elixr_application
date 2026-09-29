@@ -2032,14 +2032,16 @@ def test_official_session_keeps_global_yolo_cadence():
     assert session._orientation_detector is None
 
 
-def test_custom_assessment_uses_global_yolo_cadence():
+def test_custom_assessment_runs_yolo_every_tick_for_dense_prop_evidence():
+    # Only YOLO-attempted ticks are prop evidence; a skip cadence caps prop
+    # coverage at 1/skip, so one real miss vetoed a correct dynamic attempt.
     session = websocket_api.VisionSession(
         "Custom Movement",
         session_mode="custom_assessment",
         custom_movement_template=_template().to_dict(),
     )
 
-    assert session._yolo_frame_skip == YOLO_FRAME_SKIP
+    assert session._yolo_frame_skip == 1
 
 
 def test_skipped_yolo_assessment_tick_never_samples_extrapolated_prop():
