@@ -199,6 +199,37 @@ def test_rotation_only_dynamic_template_completes_from_observed_turn():
     assert evaluate_completion(template, reversed_spin) != MOVEMENT_COMPLETED
 
 
+def test_wrong_turn_before_a_valid_turn_does_not_cancel_it():
+    from assessment.custom_movement.completion import evaluate_completion_segment
+
+    def centered(turns, offset_ms=0):
+        return tuple(replace(sample, prop=Landmark(0.5, 0.5),
+                             timestamp_ms=sample.timestamp_ms + offset_ms)
+                     for sample in _sequence(turns))
+
+    template = build_template([centered(1), centered(1)])
+    # The window's net turn is ~0 (or short of the learned turn), which used
+    # to hide the complete later turn.
+    for wrong in (-1, -0.5):
+        status, start_ms = evaluate_completion_segment(
+            template, centered(wrong) + centered(1, 2050))
+        assert status == MOVEMENT_COMPLETED
+        assert start_ms is not None and start_ms >= 1900
+    # Reversed, cancelling, or insufficient turns still never complete.
+    assert evaluate_completion(
+        template, centered(-1) + centered(-1, 2050)) != MOVEMENT_COMPLETED
+    assert evaluate_completion(
+        template, centered(0.5) + centered(-0.5, 2050)) != MOVEMENT_COMPLETED
+    assert evaluate_completion(
+        template, centered(-1) + centered(0.4, 2050)) != MOVEMENT_COMPLETED
+    # Over-rotation stays invalid: no suffix may cut one learned turn out of
+    # a continuous longer spin, at learned or at slower speed.
+    assert evaluate_completion(template, centered(2)) != MOVEMENT_COMPLETED
+    assert evaluate_completion(template, tuple(
+        replace(sample, prop=Landmark(0.5, 0.5)) for sample in _sequence(2, count=81)
+    )) != MOVEMENT_COMPLETED
+
+
 def test_directed_axis_requires_both_confident_keypoints():
     assert _observation(0).angle_rad == pytest.approx(0)
     assert _observation(math.pi / 2).angle_rad == pytest.approx(math.pi / 2)

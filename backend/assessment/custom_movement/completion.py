@@ -144,10 +144,13 @@ class _PreparedSequence:
         return len(self.frames)
 
     def tail(self, start: int) -> "_PreparedSequence":
+        return self.span(start, len(self.frames))
+
+    def span(self, start: int, stop: int) -> "_PreparedSequence":
         return _PreparedSequence(
-            self.frames[start:],
-            {m: v[start:] for m, v in self.values.items()},
-            {m: p[start:] for m, p in self.points.items()},
+            self.frames[start:stop],
+            {m: v[start:stop] for m, v in self.values.items()},
+            {m: p[start:stop] for m, p in self.points.items()},
         )
 
     def error(self, i: int, other: "_PreparedSequence", j: int, modality: str) -> float | None:
@@ -443,6 +446,20 @@ _MAX_ATTEMPT_RESTARTS = 4
 # Frames spanned by the direction estimate used to find turnarounds; a span
 # (not frame-to-frame) keeps detector jitter from looking like a reversal.
 _TURN_SPAN = 3
+# A wrong start can flow into a correct execution without any detectable rest
+# or reversal (e.g. a curved turn), leaving the user displaced so no onset-
+# anchored candidate can match. Completion then also asks "did the newest
+# frames just finish one valid execution?" over a few suffixes ending at the
+# latest frame, lengths spaced by a fraction of the learned duration. The
+# count is fixed and anchored to the newest frame, so successive live ticks
+# probe shifted boundaries while per-call work stays bounded.
+_MAX_SUFFIX_CANDIDATES = 6
+_MIN_SUFFIX_DURATION_FACTOR = 0.4
+_SUFFIX_STEPS_PER_DURATION = 3
+# A suffix must begin where the learned motion is not already under way
+# (after a wrong, reversed, curved or paused prefix): at most this share of
+# the learned travel/turn in the learned direction just before its start.
+_MAX_LEAD_IN_PROGRESS = 0.25
 
 
 def _centroid(points: Mapping[str, tuple[float, float]]) -> tuple[float, float] | None:
@@ -486,6 +503,75 @@ def _next_attempt_boundary(
     return None
 
 
+def _suffix_starts(template: MovementTemplate, frames: Sequence[FrameSample]) -> list[int]:
+    """Chronological starts of the bounded suffix candidates of ``frames``."""
+    if len(frames) < 2:
+        return []
+    duration = max(1, template.duration_ms)
+    min_length = max(_MIN_DYNAMIC_DURATION_MS,
+                     round(_MIN_SUFFIX_DURATION_FACTOR * duration))
+    step = max(1, round(duration / _SUFFIX_STEPS_PER_DURATION))
+    last = frames[-1].timestamp_ms
+    starts: set[int] = set()
+    index = len(frames)
+    for k in range(_MAX_SUFFIX_CANDIDATES):
+        cutoff = last - min_length - k * step
+        if cutoff <= frames[0].timestamp_ms:
+            break
+        while index > 0 and frames[index - 1].timestamp_ms >= cutoff:
+            index -= 1
+        starts.add(index)
+    return sorted(starts)
+
+
+def _lead_in_index(template: MovementTemplate, frames: Sequence[FrameSample], start: int) -> int:
+    """First frame of the suffix spacing just before ``start``."""
+    cutoff = frames[start].timestamp_ms - max(
+        1, round(template.duration_ms / _SUFFIX_STEPS_PER_DURATION))
+    index = start
+    while index > 0 and frames[index - 1].timestamp_ms >= cutoff:
+        index -= 1
+    return index
+
+
+def _continues_learned_rotation(
+    template: MovementTemplate, frames: Sequence[FrameSample], start: int
+) -> bool:
+    """Whether the bottle was already turning the learned way into ``start``.
+
+    A suffix may drop a wrong or unrelated prefix, but must not cut one
+    learned turn out of a longer same-direction spin (an over-rotation).
+    """
+    assert template.rotation_trace is not None
+    lead = frames[_lead_in_index(template, frames, start):start + 1]
+    if len(lead) < 2:
+        return False
+    learned = template.rotation_trace.total_signed_rad
+    turned = _rotation_trace(lead).total_signed_rad
+    return turned * math.copysign(1.0, learned) >= _MAX_LEAD_IN_PROGRESS * abs(learned)
+
+
+def _continues_learned_travel(
+    template: MovementTemplate,
+    reference: _PreparedSequence,
+    normalized: _PreparedSequence,
+    start: int,
+    modalities: Sequence[str],
+) -> bool:
+    """Whether a directional movement was already under way into ``start``.
+
+    Mirrors the rotation rule: a suffix must not cut a learned-size slice out
+    of a larger same-direction movement (and score only the flattering part).
+    """
+    lead = normalized.span(_lead_in_index(template, normalized.frames, start), start + 1)
+    for modality in modalities:
+        progress, _, travel = _displacement_match(reference, lead, modality)
+        if (travel >= 0.5 * _sequence_range(reference, modality)
+                and progress is not None and progress >= _MAX_LEAD_IN_PROGRESS):
+            return True
+    return False
+
+
 def evaluate_completion_segment(
     template: MovementTemplate, samples: Sequence[FrameSample]
 ) -> tuple[str, int | None]:
@@ -507,9 +593,30 @@ def evaluate_completion_segment(
     # with the frame count rather than with helper calls.
     reference = _prepare(template.canonical_sequence, required)
     thresholds = _moving_thresholds(template, reference)
+    # Every candidate passes the same gates; among those that pass, the
+    # segment that best fits the learned movement is reported, so a tolerated
+    # failed prefix is not scored as part of the valid execution. Full-source
+    # observability runs last, best fit first, normally once per call.
+    passed: list[tuple[float, int | None, Sequence[FrameSample]]] = []
     if not thresholds:
-        return _evaluate_dynamic_candidate(
-            template, samples, bounded, None, reference, 0, thresholds), None
+        # Rotation-only: an earlier wrong turn must not cancel a later valid
+        # one in the whole-window trace, so newest suffixes are also judged.
+        status, fit, source = _evaluate_dynamic_candidate(
+            template, samples, bounded, None, reference, 0, thresholds)
+        if status == MOVEMENT_COMPLETED:
+            passed.append((fit, None, source))
+        if template.rotation_trace is not None:
+            for start in _suffix_starts(template, bounded):
+                if start == 0 or _continues_learned_rotation(template, bounded, start):
+                    continue
+                suffix_status, fit, source = _evaluate_dynamic_candidate(
+                    template, samples, bounded[start:], None, reference, 0, thresholds)
+                if suffix_status == MOVEMENT_COMPLETED:
+                    passed.append((fit, bounded[start].timestamp_ms, source))
+        completed = _best_observable(template, passed)
+        if completed is not None:
+            return MOVEMENT_COMPLETED, completed[1]
+        return (MOVEMENT_DETECTED if status == MOVEMENT_COMPLETED else status), None
     normalized = _prepare(normalize_sequence(
         bounded,
         use_pose_anchor="pose" in required,
@@ -517,25 +624,58 @@ def evaluate_completion_segment(
     ), list(thresholds))
     offset = 0
     best: tuple[str, int | None] = (WAITING_FOR_MOVEMENT, None)
+    tried: set[int] = set()
     for _ in range(_MAX_ATTEMPT_RESTARTS + 1):
         start = _movement_start_index(normalized.tail(offset), thresholds)
         if start is None:
             break
         start += offset
-        status = _evaluate_dynamic_candidate(
+        tried.add(start)
+        status, fit, source = _evaluate_dynamic_candidate(
             template, samples, bounded, normalized, reference, start, thresholds)
         start_ms = normalized.frames[start].timestamp_ms
         if status == MOVEMENT_COMPLETED:
-            return status, start_ms
+            passed.append((fit, start_ms, source))
+            # Reported as in progress unless observability confirms it below.
+            status = MOVEMENT_DETECTED
         if status == MOVEMENT_DETECTED or best[0] == WAITING_FOR_MOVEMENT:
             best = (status, start_ms if status != WAITING_FOR_MOVEMENT else best[1])
-        # Re-anchor where this failed attempt turns around or rests, so the
-        # retry is compared from its own start, not the failed attempt's tail.
+        # Re-anchor where this attempt turns around or rests, so a retry is
+        # compared from its own start, not the earlier attempt's tail.
         boundary = _next_attempt_boundary(normalized, start, thresholds)
         if boundary is None or len(normalized) - boundary < 2:
             break
         offset = boundary
+    if not tried:
+        return best
+    # A failed prefix is disposable: a valid execution in the newest frames
+    # completes on its own even without a detectable rest or reversal before
+    # it. Suffixes never replace the reported in-progress onset (they are not
+    # attempts); they only compete as completed segments.
+    first_onset = min(tried)
+    for start in _suffix_starts(template, normalized.frames):
+        if (start <= first_onset or start in tried or _continues_learned_travel(
+                template, reference, normalized, start, list(thresholds))):
+            continue
+        status, fit, source = _evaluate_dynamic_candidate(
+            template, samples, bounded, normalized, reference, start, thresholds)
+        if status == MOVEMENT_COMPLETED:
+            passed.append((fit, normalized.frames[start].timestamp_ms, source))
+    completed = _best_observable(template, passed)
+    if completed is not None:
+        return MOVEMENT_COMPLETED, completed[1]
     return best
+
+
+def _best_observable(
+    template: MovementTemplate,
+    passed: Sequence[tuple[float, int | None, Sequence[FrameSample]]],
+) -> tuple[float, int | None, Sequence[FrameSample]] | None:
+    """Best-fitting gate-passing candidate whose source is observable."""
+    for candidate in sorted(passed, key=lambda item: item[0]):
+        if _observable(template, candidate[2]):
+            return candidate
+    return None
 
 
 def _evaluate_dynamic_candidate(
@@ -546,27 +686,30 @@ def _evaluate_dynamic_candidate(
     reference: _PreparedSequence,
     movement_start: int,
     thresholds: Mapping[str, float],
-) -> str:
-    """Completion gates for one candidate attempt beginning at ``movement_start``."""
-    required = template.required_modalities
+) -> tuple[str, float, Sequence[FrameSample]]:
+    """Motion gates for one candidate attempt beginning at ``movement_start``.
+
+    Returns the status, the fit (distance from the learned movement, lower is
+    better; ``inf`` unless completed) and the raw source frames. A completed
+    status is provisional: the caller must still confirm live observability
+    with ``_observable`` on the source, which is deferred so only the chosen
+    candidate pays for full-source validation.
+    """
     moving_modalities = list(thresholds)
     if not moving_modalities:
         if template.rotation_trace is not None:
             trace = _rotation_trace(bounded)
             if abs(trace.total_signed_rad) < MIN_ROTATION_AMOUNT_RAD:
-                return WAITING_FOR_MOVEMENT
-            validation = validate_assessment_sequence(
-                bounded, required, required_hand_sides=template.required_hand_sides,
-                template=template,
-            )
-            if (validation.valid and _rotation_track_stable(bounded)
+                return WAITING_FOR_MOVEMENT, math.inf, bounded
+            if (_rotation_track_stable(bounded)
                     and trace.coverage >= MIN_ROTATION_COVERAGE
                     and trace.pair_coverage >= MIN_ROTATION_PAIR_COVERAGE
                     and abs(trace.total_signed_rad - template.rotation_trace.total_signed_rad)
                     <= MAX_REFERENCE_ROTATION_SPREAD_RAD):
-                return MOVEMENT_COMPLETED
-            return MOVEMENT_DETECTED
-        return WAITING_FOR_MOVEMENT
+                return MOVEMENT_COMPLETED, abs(
+                    trace.total_signed_rad - template.rotation_trace.total_signed_rad), bounded
+            return MOVEMENT_DETECTED, math.inf, bounded
+        return WAITING_FOR_MOVEMENT, math.inf, bounded
     # Tolerances below were tuned in shoulder widths; widen (never tighten)
     # them for hand-anchored templates whose units are much smaller.
     tolerance_scale = max(1.0, _motion_unit(template) or 1.0)
@@ -580,7 +723,7 @@ def _evaluate_dynamic_candidate(
     assert normalized is not None
     candidate = normalized.tail(movement_start)
     if not candidate.frames:
-        return WAITING_FOR_MOVEMENT
+        return WAITING_FOR_MOVEMENT, math.inf, ()
     candidate_start_ms = candidate.frames[0].timestamp_ms
     source_candidate = tuple(
         frame for frame in samples if frame.timestamp_ms >= candidate_start_ms
@@ -601,13 +744,13 @@ def _evaluate_dynamic_candidate(
         for modality in moving_modalities
     )
     if not movement_detected:
-        return WAITING_FOR_MOVEMENT
+        return WAITING_FOR_MOVEMENT, math.inf, source_candidate
     if len(candidate) < MIN_TRACKING_SAMPLES:
-        return MOVEMENT_DETECTED
+        return MOVEMENT_DETECTED, math.inf, source_candidate
 
     candidate_duration = candidate.frames[-1].timestamp_ms - candidate_start_ms
     if candidate_duration < _MIN_DYNAMIC_DURATION_MS:
-        return MOVEMENT_DETECTED
+        return MOVEMENT_DETECTED, math.inf, source_candidate
 
     # Each learned moving modality contributes evidence. A short glitch in one
     # modality cannot veto a well-observed sequence in the others, but every
@@ -686,23 +829,27 @@ def _evaluate_dynamic_candidate(
         ))
     quorum = len(moving_modalities) // 2 + 1 if len(moving_modalities) > 2 else 1
     if sum(item.complete for item in evidence) < quorum:
-        return MOVEMENT_DETECTED
+        return MOVEMENT_DETECTED, math.inf, source_candidate
     # Prop presence is enforced by live validation below. A learned prop path
     # must show real travel (not a set-down prop) that roughly follows the
     # learned action; its exact shape and endpoints are scored by
     # compare_sequence rather than vetoing completion.
     if any(item.modality == "prop_translation" and not _prop_follows(item)
            for item in evidence):
-        return MOVEMENT_DETECTED
-    validation = validate_assessment_sequence(
-        source_candidate,
-        required,
+        return MOVEMENT_DETECTED, math.inf, source_candidate
+    aligned = [item.aligned_error for item in evidence
+               if item.complete and item.aligned_error is not None]
+    return MOVEMENT_COMPLETED, sum(aligned) / len(aligned), source_candidate
+
+
+def _observable(template: MovementTemplate, source: Sequence[FrameSample]) -> bool:
+    """Every required modality is observable enough in the raw source frames."""
+    return validate_assessment_sequence(
+        source,
+        template.required_modalities,
         required_hand_sides=template.required_hand_sides,
         template=template,
-    )
-    if not validation.valid:
-        return MOVEMENT_DETECTED
-    return MOVEMENT_COMPLETED
+    ).valid
 
 
 def _prop_follows(item: DynamicMotionEvidence) -> bool:

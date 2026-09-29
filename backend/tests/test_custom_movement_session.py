@@ -1,3 +1,4 @@
+import math
 import time
 import threading
 import uuid
@@ -14,6 +15,7 @@ from assessment.custom_movement.completion import (
     MOVEMENT_DETECTED,
     WAITING_FOR_MOVEMENT,
     evaluate_completion,
+    evaluate_completion_segment,
     find_movement_start_index,
 )
 from assessment.custom_movement.template_engine import (
@@ -647,6 +649,160 @@ def _long_live_candidate(phases, **kwargs):
     return tuple(_full_body_frame(index * 33, u, **kwargs) for index, u in enumerate(phases))
 
 
+def _displaced(frame, dx, dy):
+    """Move the arm, hand and prop; the shoulder anchor stays put."""
+    move = lambda p: Landmark(p.x + dx, p.y + dy)  # noqa: E731
+    return replace(
+        frame,
+        pose={k: (p if k in ("11", "12") else move(p)) for k, p in frame.pose.items()},
+        hands={k: move(p) for k, p in frame.hands.items()},
+        prop=move(frame.prop) if frame.prop else None,
+    )
+
+
+_FULL_BODY_REFERENCE = tuple(_full_body_frame(index * 100, index / 19) for index in range(20))
+
+
+@pytest.fixture(scope="module")
+def full_body_template():
+    return build_template([_FULL_BODY_REFERENCE] * 3)
+
+
+def _hook(start_ms=0, origin=(0.0, 0.0), *, travel=0.25, radius=0.04):
+    """Wrong-direction start that curves round instead of reversing sharply.
+
+    The direction turns gradually (never a span reversal) and never rests, so
+    no ``_next_attempt_boundary`` separates it from what follows, and it
+    leaves the performer displaced against the learned direction.
+    """
+    ox, oy = origin
+    path = [(-travel * index / 8, 0.0) for index in range(8)]
+    path += [(-travel - radius * math.sin(math.pi * k / 7),
+              -radius * (1 - math.cos(math.pi * k / 7))) for k in range(8)]
+    return tuple(
+        _displaced(_full_body_frame(start_ms + index * 100, 0.0), ox + dx, oy + dy)
+        for index, (dx, dy) in enumerate(path)
+    ), (ox + path[-1][0], oy + path[-1][1])
+
+
+def _execution(start_ms, origin, phases=None):
+    phases = phases if phases is not None else [index / 19 for index in range(20)]
+    return tuple(_displaced(_full_body_frame(start_ms + index * 100, u), *origin)
+                 for index, u in enumerate(phases))
+
+
+def _hooks_then(count, phases=None):
+    """``count`` curved wrong starts flowing straight into ``phases``."""
+    samples, origin = (), (0.0, 0.0)
+    for _ in range(count):
+        hook, origin = _hook(len(samples) * 100, origin)
+        samples += hook
+    retry_start = len(samples) * 100
+    return samples + _execution(retry_start, origin, phases), retry_start
+
+
+def test_correct_first_execution_completes_from_its_own_start(full_body_template):
+    status, start_ms = evaluate_completion_segment(full_body_template, _FULL_BODY_REFERENCE)
+    assert (status, start_ms) == (MOVEMENT_COMPLETED, 0)
+
+
+def test_bad_prefix_without_retry_boundary_does_not_poison_the_correct_execution(
+        full_body_template, monkeypatch):
+    from assessment.custom_movement import completion
+
+    samples, retry_start = _hooks_then(1)
+    status, start_ms = evaluate_completion_segment(full_body_template, samples)
+    assert status == MOVEMENT_COMPLETED
+    # The matched segment is the correct execution, not the wrong prefix
+    # (at most one transitional frame before it).
+    assert retry_start - 100 <= start_ms <= retry_start + 300
+    # Regression guard: onset/boundary re-anchoring alone cannot recover here,
+    # so this scenario does not depend on a detectable rest or reversal.
+    monkeypatch.setattr(completion, "_MAX_SUFFIX_CANDIDATES", 0)
+    assert evaluate_completion_segment(full_body_template, samples)[0] == MOVEMENT_DETECTED
+
+
+def test_several_failed_starts_then_a_correct_execution_completes_in_the_live_window(
+        full_body_template):
+    from assessment.custom_movement.completion import live_completion_window
+
+    samples, retry_start = _hooks_then(2)
+    window = tuple(live_completion_window(full_body_template, samples))
+    status, start_ms = evaluate_completion_segment(full_body_template, window)
+    assert status == MOVEMENT_COMPLETED
+    assert retry_start - 100 <= start_ms <= retry_start + 300
+    # Before the retry finishes, only the failed starts are visible.
+    partial = tuple(frame for frame in samples if frame.timestamp_ms < retry_start + 800)
+    assert evaluate_completion(full_body_template, partial) != MOVEMENT_COMPLETED
+
+
+@pytest.mark.parametrize("name", (
+    "wrong_starts_only", "reversed_retry", "stationary_after", "incomplete_retry",
+    "prop_missing", "prop_set_down",
+))
+def test_failed_prefixes_do_not_make_invalid_retries_complete(full_body_template, name):
+    reverse = [1 - index / 19 for index in range(20)]
+    if name == "wrong_starts_only":
+        samples, _ = _hooks_then(3, phases=[0.0] * 10)
+    elif name == "reversed_retry":
+        samples, _ = _hooks_then(1, phases=reverse)
+    elif name == "stationary_after":
+        samples, _ = _hooks_then(1, phases=[0.0] * 20)
+    elif name == "incomplete_retry":
+        samples, _ = _hooks_then(1, phases=[0.3 * index / 19 for index in range(20)])
+    elif name == "prop_missing":
+        samples = tuple(replace(frame, prop=None) for frame in _hooks_then(1)[0])
+    else:
+        samples = tuple(replace(frame, prop=Landmark(0.31, 0.45))
+                        for frame in _hooks_then(1)[0])
+    assert evaluate_completion(full_body_template, samples) != MOVEMENT_COMPLETED
+
+
+def test_suffix_search_never_scores_a_slice_of_one_oversized_movement(full_body_template):
+    # One sweep at twice the learned travel: graded as a whole, never as a
+    # flattering learned-size slice cut out of its middle or end.
+    for frames, interval in ((20, 100), (40, 100)):
+        oversized = tuple(_full_body_frame(index * interval, 2 * index / (frames - 1))
+                          for index in range(frames))
+        status, start_ms = evaluate_completion_segment(full_body_template, oversized)
+        assert status == MOVEMENT_COMPLETED and start_ms == 0
+
+
+def test_completion_after_curved_bad_prefix_scores_only_the_matched_execution(
+        full_body_template):
+    samples, retry_start = _hooks_then(1)
+    # The same execution alone, performed where the retry was performed
+    # (placement is graded, so the learned spot would not be comparable).
+    clean = _execution(0, _hook()[1])
+
+    def finish(recording):
+        session = websocket_api.VisionSession(
+            "Custom Movement", session_mode="custom_assessment",
+            custom_movement_template=full_body_template.to_dict(),
+        )
+        session._custom_samples = list(recording)
+        session._custom_assessment_progress = MOVEMENT_COMPLETED
+        # Stale first-onset anchor, as set when the wrong start was detected.
+        session._custom_assessment_movement_start_index = 0
+        session._note_custom_attempt_start(tuple(recording), completed=True)
+        anchor = session._custom_assessment_movement_start_index
+        try:
+            return anchor, session.finish_custom_assessment()
+        finally:
+            session.close()
+
+    anchor, result = finish(samples)
+    assert samples[anchor].timestamp_ms >= retry_start - 100
+    _, clean_result = finish(clean)
+    assert result["movement_completed"] is True
+    # The discarded prefix does not lower the completed execution's score.
+    assert result["raw_total"] == clean_result["raw_total"]
+    assert result["score_percent"] == clean_result["score_percent"]
+    # Whereas grading the whole recording would have been dragged down by it.
+    assert compare_sequence(full_body_template, samples, assessment=True).total < (
+        result["raw_total"])
+
+
 @pytest.mark.parametrize(("count", "limit", "expected"), (
     (63, 64, 63), (64, 64, 64), (65, 64, 64), (66, 64, 64),
     (100, 64, 64), (127, 64, 64), (230, 64, 64), (241, 240, 240),
@@ -698,11 +854,16 @@ def test_live_alignment_input_stays_bounded_for_long_candidates(monkeypatch):
     assert evaluate_completion(template, samples) == MOVEMENT_COMPLETED
     assert aligned and all(
         len(candidate) <= completion._LIVE_ALIGNMENT_MAX_SAMPLES for candidate in aligned)
-    last = aligned[-1]
-    # Endpoints of the (much longer) attempt are represented, chronologically.
-    assert last[-1].timestamp_ms == samples[-1].timestamp_ms
-    assert [f.timestamp_ms for f in last] == sorted(f.timestamp_ms for f in last)
-    assert last[0].timestamp_ms <= samples[len(idle) + 3 * len(wrong)].timestamp_ms
+    # Onset/boundary restarts plus newest-suffix candidates, one DTW per moving
+    # modality each: a fixed cap, independent of how long the session runs.
+    assert len(aligned) <= 3 * (
+        completion._MAX_ATTEMPT_RESTARTS + 1 + completion._MAX_SUFFIX_CANDIDATES)
+    assert all([f.timestamp_ms for f in c] == sorted(f.timestamp_ms for f in c)
+               for c in aligned)
+    # Endpoints of the (much longer) retry are represented in its alignment.
+    retry_start = samples[len(idle) + 3 * len(wrong)].timestamp_ms
+    assert any(c[-1].timestamp_ms == samples[-1].timestamp_ms
+               and c[0].timestamp_ms <= retry_start for c in aligned)
     # Observability still validates the full, unstrided source candidate.
     assert validated and max(validated) > completion._LIVE_ALIGNMENT_MAX_SAMPLES
 
@@ -721,13 +882,13 @@ def test_live_completion_prepares_semantic_hands_once_per_frame(monkeypatch):
 
     Structural (call counts, not timing): normalisation, the prepared view
     and raw-source validation each re-key a frame once; reference and the
-    bounded DTW input add a size-independent constant.
+    bounded DTW inputs of the capped candidate set add a size-independent
+    constant.
     """
     from assessment.custom_movement import template_engine
 
     reference = tuple(_full_body_frame(index * 100, index / 19) for index in range(20))
     template = build_template([reference] * 3)
-    idle = [0.0] * 20
     wrong = [1 - index / 19 * 0.2 for index in range(20)] + [0.0] * 10
     correct = [index / 99 for index in range(100)] + [1.0] * 20
     calls = [0]
@@ -739,13 +900,14 @@ def test_live_completion_prepares_semantic_hands_once_per_frame(monkeypatch):
 
     monkeypatch.setattr(template_engine, "_semantic_hands", counting)
     counts = {}
-    for samples in (_long_live_candidate([index / 63 for index in range(64)]),
-                    _long_live_candidate(idle + wrong * 3 + correct)):
+    # Same attempts, only the idle lead-in (frame count) differs.
+    for idle in (20, 60, 100):
+        samples = _long_live_candidate([0.0] * idle + wrong * 3 + correct)
         calls[0] = 0
         assert evaluate_completion(template, samples) == MOVEMENT_COMPLETED
         counts[len(samples)] = calls[0]
-    (short, short_calls), (long, long_calls) = sorted(counts.items())
-    assert long_calls <= 3 * long + 400
+    (short, short_calls), *_, (long, long_calls) = sorted(counts.items())
+    assert long_calls <= 3 * long + 1400
     assert (long_calls - short_calls) / (long - short) <= 4
 
 
