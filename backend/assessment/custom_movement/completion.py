@@ -1,8 +1,11 @@
 """Evidence-based completion detection for live custom assessments."""
 
 import math
-from dataclasses import dataclass, replace
+from bisect import bisect_left
+from dataclasses import dataclass, field, replace
 from typing import Any, Mapping, Sequence
+
+import numpy as np
 
 from .template_engine import (
     MEANINGFUL_POSE_KEYS,
@@ -24,12 +27,13 @@ from .template_engine import (
     _rotation_track_stable,
     compare_sequence,
     final_frames_still,
-    landmark_tracks_motion,
+    median3_filter,
     motion_thresholds,
     normalize_sequence,
     sequence_motion,
     static_frame_matches,
     static_match_modalities,
+    top_ranges_motion,
     dynamic_prop_gap_policy,
     trailing_hold_window,
     validate_assessment_sequence,
@@ -126,6 +130,55 @@ def _frame_points(prepared: Any) -> dict[str, tuple[float, float]]:
     return {key: (p.x, p.y) for key, p in prepared[1].items() if p is not None}
 
 
+# One landmark track of a whole prepared sequence: the frame indexes it was
+# observed at and its 3-sample median-filtered coordinates (index ``i`` is the
+# median centred on observation ``i + 1``), as numpy arrays.
+_MotionTrack = tuple[np.ndarray, np.ndarray, np.ndarray]
+# Squared distances within this relative margin of the largest are re-measured
+# with ``math.hypot``; float64 rounding of ``dx*dx + dy*dy`` is ~1e-15, so the
+# exact maximum is always among them.
+_ARGMAX_MARGIN = 1e-9
+
+
+def _track_range(fx: np.ndarray, fy: np.ndarray, start: int, stop: int) -> float:
+    """``max(math.hypot(fx[i] - fx[start], fy[i] - fy[start]))`` for ``start <= i < stop``.
+
+    Vectorised to find the farthest candidates, then measured exactly with
+    ``math.hypot`` so the value is bit-identical to the scalar scan.
+    """
+    dx = fx[start:stop] - fx[start]
+    dy = fy[start:stop] - fy[start]
+    squared = dx * dx + dy * dy
+    largest = float(squared.max())
+    if largest > 1e-200:
+        candidates = np.flatnonzero(squared >= largest * (1.0 - _ARGMAX_MARGIN))
+    else:
+        # Degenerate/underflowing distances: measure every moved sample.
+        candidates = np.flatnonzero((dx != 0) | (dy != 0))
+        if not candidates.size:
+            return 0.0
+    return max(math.hypot(float(dx[i]), float(dy[i])) for i in candidates)
+
+
+def _build_motion_tracks(values: Sequence[Any], modality: str) -> list[_MotionTrack]:
+    """Pose/hands landmark tracks exactly as ``_sequence_motion`` groups them."""
+    positions: dict[str, list[int]] = {}
+    xs: dict[str, list[float]] = {}
+    ys: dict[str, list[float]] = {}
+    for index, value in enumerate(values):
+        for key, point in value[1].items():
+            if point is not None and (modality != "pose" or key in MEANINGFUL_POSE_KEYS):
+                if key not in positions:
+                    positions[key], xs[key], ys[key] = [], [], []
+                positions[key].append(index)
+                xs[key].append(point.x)
+                ys[key].append(point.y)
+    return [(np.asarray(positions[key], dtype=np.int64),
+             np.asarray(median3_filter(xs[key]), dtype=np.float64),
+             np.asarray(median3_filter(ys[key]), dtype=np.float64))
+            for key in positions]
+
+
 @dataclass(frozen=True)
 class _PreparedSequence:
     """Per-evaluation view of frames with modality data resolved once.
@@ -135,11 +188,19 @@ class _PreparedSequence:
     per frame instead of once per helper invocation. ``values`` holds exact
     ``_prepare_dtw_modality`` outputs, so ``_prepared_modality_error`` over
     them equals ``_modality_error`` over the frames.
+
+    ``tail``/``span`` views share ``_root_values`` and ``_tracks`` with the
+    sequence they were cut from; ``_offset`` locates the view inside it, so
+    every candidate's sustained motion reuses one set of landmark tracks.
     """
 
     frames: tuple[FrameSample, ...]
     values: Mapping[str, tuple[Any, ...]]
     points: Mapping[str, tuple[dict[str, tuple[float, float]], ...]]
+    _offset: int = 0
+    _root_values: Mapping[str, tuple[Any, ...]] | None = None
+    _tracks: dict[str, list[_MotionTrack]] = field(
+        default_factory=dict, compare=False, repr=False)
 
     def __len__(self) -> int:
         return len(self.frames)
@@ -148,11 +209,34 @@ class _PreparedSequence:
         return self.span(start, len(self.frames))
 
     def span(self, start: int, stop: int) -> "_PreparedSequence":
+        start, stop, _ = slice(start, stop).indices(len(self.frames))
+        stop = max(start, stop)
         return _PreparedSequence(
             self.frames[start:stop],
             {m: v[start:stop] for m, v in self.values.items()},
             {m: p[start:stop] for m, p in self.points.items()},
+            self._offset + start,
+            self._root_values if self._root_values is not None else self.values,
+            self._tracks,
         )
+
+    def landmark_motion(self, modality: str) -> float:
+        """``landmark_tracks_motion`` of this view's pose/hands tracks."""
+        root = self._root_values if self._root_values is not None else self.values
+        tracks = self._tracks.get(modality)
+        if tracks is None:
+            tracks = self._tracks[modality] = _build_motion_tracks(root[modality], modality)
+        first, stop = self._offset, self._offset + len(self.frames)
+        ranges = []
+        for positions, fx, fy in tracks:
+            p = int(np.searchsorted(positions, first))
+            q = int(np.searchsorted(positions, stop))
+            if q - p < 3:
+                continue
+            # A view's own filtered track is fx/fy[p .. q-3]: its median
+            # windows lie wholly inside the view, so values are identical.
+            ranges.append(_track_range(fx, fy, p, q - 2))
+        return top_ranges_motion(ranges)
 
     def error(self, i: int, other: "_PreparedSequence", j: int, modality: str) -> float | None:
         return _prepared_modality_error(self.values[modality][i], other.values[modality][j])
@@ -286,12 +370,7 @@ def _sequence_motion(sequence: _PreparedSequence, modality: str) -> float:
     """``sequence_motion`` over prepared frames (no per-call hand re-keying)."""
     if modality == "prop_translation":
         return sequence_motion(sequence.frames, modality)
-    tracks: dict[str, list] = {}
-    for value in sequence.values[modality]:
-        for key, point in value[1].items():
-            if point is not None and (modality != "pose" or key in MEANINGFUL_POSE_KEYS):
-                tracks.setdefault(key, []).append(point)
-    return landmark_tracks_motion(tracks)
+    return sequence.landmark_motion(modality)
 
 
 def _mean_points(
@@ -420,10 +499,12 @@ def estimate_sequence_progress(
     moving = list(_moving_thresholds(template))
     if not moving:
         return 0.0
+    # Normalisation is per frame, so only the three frames used are normalised.
     recent = normalize_sequence(
-        _bounded_samples(samples), use_pose_anchor="pose" in template.required_modalities,
+        _bounded_samples(samples)[-3:],
+        use_pose_anchor="pose" in template.required_modalities,
         required_hand_sides=template.required_hand_sides,
-    )[-3:]
+    )
     best_index = 0
     best_error = float("inf")
     for index, phase in enumerate(reference):
@@ -585,8 +666,152 @@ def _continues_learned_travel(
     return False
 
 
+class LiveCompletionCache:
+    """Per-recording memo of work that never changes between live ticks.
+
+    Normalisation and DTW preparation are per frame, so a live sample is
+    prepared once when it first enters the window instead of on every 0.5 s
+    tick; the canonical reference context depends only on the template.
+    Results are identical to uncached evaluation. Entries hold the sample
+    itself, so an ``id`` is only reused after its entry was pruned. Use one
+    cache per recording, from a single thread.
+    """
+
+    def __init__(self) -> None:
+        self._template: MovementTemplate | None = None
+        self._reference: tuple[_PreparedSequence, dict[str, float], Any] | None = None
+        # id(sample) -> (sample, normalised frame, {modality: (value, points)}, seq)
+        self._frames: dict[
+            int, tuple[FrameSample, FrameSample, dict[str, tuple[Any, Any]], int]] = {}
+        self._next_seq = 0
+        # Recording-wide pose/hands landmark tracks, extended as samples arrive:
+        # modality -> key -> (seqs, xs, ys, filtered xs, filtered ys).
+        self._tracks: dict[str, dict[str, tuple[list, list, list, list, list]]] = {}
+        self._track_modalities: tuple[str, ...] | None = None
+
+    def _bind(self, template: MovementTemplate) -> None:
+        if self._template is not template:
+            self._template = template
+            self._reference = None
+            self._frames = {}
+            self._next_seq = 0
+            self._tracks = {}
+            self._track_modalities = None
+
+    def _extend_tracks(self, seq: int, prepared: Mapping[str, tuple[Any, Any]]) -> None:
+        """Append one new sample's landmarks; each median is computed once."""
+        for modality in self._track_modalities or ():
+            tracks = self._tracks.setdefault(modality, {})
+            for key, point in prepared[modality][0][1].items():
+                if point is None or (modality == "pose" and key not in MEANINGFUL_POSE_KEYS):
+                    continue
+                track = tracks.get(key)
+                if track is None:
+                    track = tracks[key] = ([], [], [], [], [])
+                seqs, xs, ys, fxs, fys = track
+                seqs.append(seq)
+                xs.append(point.x)
+                ys.append(point.y)
+                if len(xs) >= 3:
+                    fxs.extend(median3_filter(xs[-3:]))
+                    fys.extend(median3_filter(ys[-3:]))
+
+    def _window_tracks(self, first_seq: int, last_seq: int) -> dict[str, list[_MotionTrack]]:
+        """``_build_motion_tracks`` of a contiguous window, from the global tracks.
+
+        A median's neighbours are adjacent observations of the same landmark;
+        inside a contiguous run of samples those are the same globally and in
+        the window, so the window's filtered values are a slice of the global.
+        """
+        result: dict[str, list[_MotionTrack]] = {}
+        for modality, tracks in self._tracks.items():
+            window: list[_MotionTrack] = []
+            for seqs, _, _, fxs, fys in tracks.values():
+                a = bisect_left(seqs, first_seq)
+                b = bisect_left(seqs, last_seq + 1, a)
+                if b == a:
+                    continue
+                window.append((
+                    np.asarray(seqs[a:b], dtype=np.int64) - first_seq,
+                    np.asarray(fxs[a:max(a, b - 2)], dtype=np.float64),
+                    np.asarray(fys[a:max(a, b - 2)], dtype=np.float64),
+                ))
+            result[modality] = window
+        return result
+
+    def reference(self, template: MovementTemplate):
+        """``(prepared_reference, thresholds, reference_context or None)``."""
+        self._bind(template)
+        if self._reference is None:
+            prepared = _prepare(template.canonical_sequence, template.required_modalities)
+            thresholds = _moving_thresholds(template, prepared)
+            context = (_reference_context(template, prepared, thresholds)
+                       if thresholds else None)
+            self._reference = (prepared, thresholds, context)
+        return self._reference
+
+    def prepare(
+        self, template: MovementTemplate, samples: Sequence[FrameSample],
+        modalities: Sequence[str],
+    ) -> _PreparedSequence:
+        """``_prepare(normalize_sequence(samples, ...), modalities)``, memoised."""
+        self._bind(template)
+        track_modalities = tuple(m for m in modalities if m != "prop_translation")
+        if self._track_modalities is None:
+            self._track_modalities = track_modalities
+        missing = [s for s in samples
+                   if (entry := self._frames.get(id(s))) is None or entry[0] is not s]
+        if missing:
+            normalised = normalize_sequence(
+                missing,
+                use_pose_anchor="pose" in template.required_modalities,
+                required_hand_sides=template.required_hand_sides,
+            )
+            for sample, frame in zip(missing, normalised):
+                prepared = {}
+                for modality in modalities:
+                    value = _prepare_dtw_modality(frame, modality)
+                    prepared[modality] = (value, _frame_points(value))
+                self._frames[id(sample)] = (sample, frame, prepared, self._next_seq)
+                if self._track_modalities == track_modalities:
+                    self._extend_tracks(self._next_seq, prepared)
+                self._next_seq += 1
+        # Only the current window is kept; older samples never return.
+        self._frames = {id(s): self._frames[id(s)] for s in samples}
+        frames = []
+        seqs = []
+        values: dict[str, list[Any]] = {m: [] for m in modalities}
+        points: dict[str, list[Any]] = {m: [] for m in modalities}
+        for sample in samples:
+            _, frame, prepared, seq = self._frames[id(sample)]
+            frames.append(frame)
+            seqs.append(seq)
+            for modality in modalities:
+                item = prepared.get(modality)
+                if item is None:
+                    value = _prepare_dtw_modality(frame, modality)
+                    item = prepared[modality] = (value, _frame_points(value))
+                values[modality].append(item[0])
+                points[modality].append(item[1])
+        # Reuse the recording-wide tracks only for a contiguous live window in
+        # arrival order (a strided or reordered window is rebuilt per call).
+        tracks: dict[str, list[_MotionTrack]] = {}
+        if (seqs and self._track_modalities == track_modalities
+                and all(b == a + 1 for a, b in zip(seqs, seqs[1:]))):
+            tracks = self._window_tracks(seqs[0], seqs[-1])
+            for modality in track_modalities:
+                tracks.setdefault(modality, [])
+        return _PreparedSequence(
+            tuple(frames),
+            {m: tuple(v) for m, v in values.items()},
+            {m: tuple(p) for m, p in points.items()},
+            _tracks=tracks,
+        )
+
+
 def evaluate_completion_segment(
-    template: MovementTemplate, samples: Sequence[FrameSample]
+    template: MovementTemplate, samples: Sequence[FrameSample],
+    *, cache: LiveCompletionCache | None = None,
 ) -> tuple[str, int | None]:
     """Progress plus the start timestamp of the attempt it describes.
 
@@ -604,8 +829,12 @@ def evaluate_completion_segment(
     # One prepared view of the reference and the bounded live sequence serves
     # every restart and gate in this call, so per-frame preprocessing scales
     # with the frame count rather than with helper calls.
-    prepared_reference = _prepare(template.canonical_sequence, required)
-    thresholds = _moving_thresholds(template, prepared_reference)
+    if cache is not None:
+        prepared_reference, thresholds, cached_reference = cache.reference(template)
+    else:
+        prepared_reference = _prepare(template.canonical_sequence, required)
+        thresholds = _moving_thresholds(template, prepared_reference)
+        cached_reference = None
     # Every candidate passes the same gates; among those that pass, the
     # segment that best fits the learned movement is reported, so a tolerated
     # failed prefix is not scored as part of the valid execution. Full-source
@@ -628,12 +857,16 @@ def evaluate_completion_segment(
         if completed is not None:
             return MOVEMENT_COMPLETED, completed[1]
         return (MOVEMENT_DETECTED if status == MOVEMENT_COMPLETED else status), None
-    reference = _reference_context(template, prepared_reference, thresholds)
-    normalized = _prepare(normalize_sequence(
-        bounded,
-        use_pose_anchor="pose" in required,
-        required_hand_sides=template.required_hand_sides,
-    ), list(thresholds))
+    if cache is not None:
+        reference = cached_reference
+        normalized = cache.prepare(template, bounded, list(thresholds))
+    else:
+        reference = _reference_context(template, prepared_reference, thresholds)
+        normalized = _prepare(normalize_sequence(
+            bounded,
+            use_pose_anchor="pose" in required,
+            required_hand_sides=template.required_hand_sides,
+        ), list(thresholds))
     # Certified on the raw (image-space) bounded frames, whose timestamps the
     # normalized candidates share; only the prop path may bridge them.
     certified_gaps = (frozenset(dynamic_prop_gap_policy(bounded).certified_gaps)

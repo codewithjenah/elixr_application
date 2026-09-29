@@ -1250,13 +1250,22 @@ def _smoothed_range(points: Sequence[Landmark]) -> float:
     """
     if len(points) < 3:
         return 0.0
-    filtered = [
-        Landmark(_median([p.x for p in points[i - 1:i + 2]]),
-                 _median([p.y for p in points[i - 1:i + 2]]))
-        for i in range(1, len(points) - 1)
+    xs = median3_filter([p.x for p in points])
+    ys = median3_filter([p.y for p in points])
+    ox, oy = xs[0], ys[0]
+    return max(math.hypot(x - ox, y - oy) for x, y in zip(xs, ys))
+
+
+def median3_filter(values: Sequence[float]) -> list[float]:
+    """Exact 3-sample medians centred on ``values[1:-1]``.
+
+    Equal to ``_median`` of each window without sorting; live completion
+    evaluates this for every landmark track on every tick.
+    """
+    return [
+        max(min(a, b), min(max(a, b), c))
+        for a, b, c in zip(values, values[1:], values[2:])
     ]
-    origin = filtered[0]
-    return max(math.hypot(p.x - origin.x, p.y - origin.y) for p in filtered)
 
 
 def sequence_motion(sequence: Sequence[FrameSample], modality: str) -> float:
@@ -1285,10 +1294,14 @@ def sequence_motion(sequence: Sequence[FrameSample], modality: str) -> float:
 
 def landmark_tracks_motion(tracks: Mapping[str, Sequence[Landmark]]) -> float:
     """``sequence_motion`` for hands/pose from already-built landmark tracks."""
-    ranges = sorted(
-        (_smoothed_range(points) for points in tracks.values() if len(points) >= 3),
-        reverse=True,
+    return top_ranges_motion(
+        _smoothed_range(points) for points in tracks.values() if len(points) >= 3
     )
+
+
+def top_ranges_motion(track_ranges: Iterable[float]) -> float:
+    """Mean of the most-moving quarter of per-landmark smoothed ranges."""
+    ranges = sorted(track_ranges, reverse=True)
     # A grip transition moves only fingertips, and the anchor wrist never
     # moves in its own frame; average the most-moving quarter of landmarks.
     top = ranges[:max(1, len(ranges) // 4)]

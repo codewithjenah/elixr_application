@@ -57,6 +57,7 @@ from assessment.custom_movement import (
     detect_prop_events,
 )
 from assessment.custom_movement.completion import (
+    LiveCompletionCache as CustomLiveCompletionCache,
     MOVEMENT_COMPLETED as CUSTOM_ASSESSMENT_COMPLETED,
     MOVEMENT_DETECTED as CUSTOM_ASSESSMENT_MOVING,
     WAITING_FOR_MOVEMENT as CUSTOM_ASSESSMENT_WAITING,
@@ -610,21 +611,28 @@ class _CustomReferenceDraft:
 
 # Upper bound stop_custom_capture waits for an in-flight live evaluation.
 _CUSTOM_COMPLETION_STOP_DRAIN_S = 1.0
+# Live completion is pure Python on a thread, so it shares the GIL with the
+# capture, AI and preview paths. The submit interval stretches to keep the
+# worker busy at most 1/_CUSTOM_COMPLETION_DUTY_FACTOR of the time on slow
+# machines (completion becomes slightly later, preview stays smooth).
+_CUSTOM_COMPLETION_MIN_INTERVAL_S = 0.5
+_CUSTOM_COMPLETION_MAX_INTERVAL_S = 2.0
+_CUSTOM_COMPLETION_DUTY_FACTOR = 4.0
 
 
 @dataclass(frozen=True)
 class _CustomCompletionJob:
     """Immutable live-completion snapshot evaluated off the AI tick.
 
-    ``recent``/``full`` are tuples copied from the append-only live recording,
-    so ``sample_count`` marks a prefix of it. The frame fields belong to the
-    frame that produced the last sample and are the only valid completion
-    evidence for this job.
+    ``recent`` is a bounded tuple copied from the append-only live recording,
+    so ``sample_count`` marks a prefix of it. The whole recording is never
+    copied or scanned per tick: its movement onset is resolved once at stop.
+    The frame fields belong to the frame that produced the last sample and
+    are the only valid completion evidence for this job.
     """
 
     generation: int
     recent: tuple[CustomFrameSample, ...]
-    full: tuple[CustomFrameSample, ...] | None
     sample_count: int
     need_progress_estimate: bool
     frame: Any = None
@@ -638,7 +646,6 @@ class _CustomCompletionResult:
     job: _CustomCompletionJob
     progress: str
     attempt_start_ms: int | None
-    movement_start_index: int | None
     progress_estimate: float | None
 
 
@@ -1050,6 +1057,10 @@ class VisionSession:
         self._custom_capture_deadline: float | None = None
         self._custom_assessment_progress = CUSTOM_ASSESSMENT_WAITING
         self._custom_assessment_last_evaluated_at: float | None = None
+        # Duration of the latest live completion evaluation (worker-written).
+        self._custom_completion_last_eval_s = 0.0
+        # (generation, cache): touched only by the completion worker thread.
+        self._custom_completion_cache: tuple[int, CustomLiveCompletionCache] | None = None
         self._custom_assessment_movement_start_index: int | None = None
         # Motion onsets of separate attempts in this recording (bounded), so a
         # timed-out run is graded on its best attempt, not its first one.
@@ -1272,6 +1283,7 @@ class VisionSession:
                 self._custom_completion_worker.invalidate()
                 self._custom_assessment_progress = CUSTOM_ASSESSMENT_WAITING
                 self._custom_assessment_last_evaluated_at = None
+                self._custom_completion_last_eval_s = 0.0
                 self._custom_assessment_movement_start_index = None
                 self._custom_assessment_attempt_starts = []
                 self._custom_event_tracker = PropEventTracker()
@@ -1309,6 +1321,19 @@ class VisionSession:
                 # after the periodic live evaluation, just before Stop.
                 self._custom_assessment_progress = evaluate_custom_assessment_completion(
                     self._custom_template, samples,
+                )
+            if (self._is_custom_assessment and self._custom_template is not None
+                    and self._custom_template.movement_behavior != "static"
+                    and self._custom_assessment_progress != CUSTOM_ASSESSMENT_WAITING
+                    and self._custom_assessment_movement_start_index is None
+                    and samples):
+                # Resolved once here rather than per live tick: scanning the
+                # whole growing recording every 0.5 s made practice lag worse
+                # over time. The onset is prefix-stable (per-frame
+                # normalisation, first threshold crossing), so the result is
+                # the one the live scan would have produced.
+                self._custom_assessment_movement_start_index = (
+                    find_custom_assessment_start_index(self._custom_template, samples)
                 )
             sample_times = tuple(self._custom_sample_capture_times)
             self._custom_sample_capture_times = []
@@ -1877,7 +1902,8 @@ class VisionSession:
             <= max(1.0, READINESS_SNAPSHOT_MAX_AGE_S)
             and (
                 self._custom_assessment_last_evaluated_at is None
-                or time.monotonic() - self._custom_assessment_last_evaluated_at >= 0.5
+                or time.monotonic() - self._custom_assessment_last_evaluated_at
+                >= self._custom_completion_interval_s()
             )
         ):
             self._custom_assessment_last_evaluated_at = time.monotonic()
@@ -1887,11 +1913,6 @@ class VisionSession:
             self._custom_completion_worker.submit(_CustomCompletionJob(
                 generation=self._custom_completion_worker.generation,
                 recent=tuple(custom_live_completion_window(self._custom_template, samples)),
-                full=(
-                    tuple(samples)
-                    if dynamic and self._custom_assessment_movement_start_index is None
-                    else None
-                ),
                 sample_count=len(samples),
                 need_progress_estimate=(
                     dynamic
@@ -1899,6 +1920,12 @@ class VisionSession:
                 ),
                 frame=frame, normalized=normalized, hands=hands, pose=pose,
             ))
+
+    def _custom_completion_interval_s(self) -> float:
+        return min(_CUSTOM_COMPLETION_MAX_INTERVAL_S, max(
+            _CUSTOM_COMPLETION_MIN_INTERVAL_S,
+            _CUSTOM_COMPLETION_DUTY_FACTOR * self._custom_completion_last_eval_s,
+        ))
 
     def _evaluate_custom_completion_job(
         self, job: _CustomCompletionJob,
@@ -1908,19 +1935,23 @@ class VisionSession:
         if template is None:
             raise ValueError("missing_custom_movement_template")
         evaluation_started = time.perf_counter()
-        progress, attempt_start_ms = evaluate_custom_assessment_segment(template, job.recent)
-        start_index = None
-        if job.full is not None and progress != CUSTOM_ASSESSMENT_WAITING:
-            start_index = find_custom_assessment_start_index(template, job.full)
+        # One cache per recording: a new generation never reuses old samples.
+        if self._custom_completion_cache is None or self._custom_completion_cache[0] != job.generation:
+            self._custom_completion_cache = (job.generation, CustomLiveCompletionCache())
+        progress, attempt_start_ms = evaluate_custom_assessment_segment(
+            template, job.recent, cache=self._custom_completion_cache[1],
+        )
         estimate = (
             estimate_custom_sequence_progress(template, job.recent)
             if job.need_progress_estimate and progress == CUSTOM_ASSESSMENT_MOVING
             else None
         )
-        self.timings.add("custom_completion", time.perf_counter() - evaluation_started)
+        elapsed = time.perf_counter() - evaluation_started
+        self._custom_completion_last_eval_s = elapsed
+        self.timings.add("custom_completion", elapsed)
         return _CustomCompletionResult(
             job=job, progress=progress, attempt_start_ms=attempt_start_ms,
-            movement_start_index=start_index, progress_estimate=estimate,
+            progress_estimate=estimate,
         )
 
     def _apply_custom_completion_result(self) -> _CustomCompletionJob | None:
@@ -1950,11 +1981,6 @@ class VisionSession:
             # as when completion was evaluated inline on that sample's tick.
             del samples[result.job.sample_count:]
             del self._custom_sample_capture_times[result.job.sample_count:]
-        if (
-            result.movement_start_index is not None
-            and self._custom_assessment_movement_start_index is None
-        ):
-            self._custom_assessment_movement_start_index = result.movement_start_index
         if attempt_start_ms is not None:
             self._note_custom_attempt_start(
                 samples, start_ms=attempt_start_ms,

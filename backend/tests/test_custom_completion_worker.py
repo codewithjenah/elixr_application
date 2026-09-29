@@ -18,7 +18,7 @@ from test_custom_movement_session import _template
 
 def _job(worker, count=1, **kwargs):
     return websocket_api._CustomCompletionJob(
-        generation=worker.generation, recent=(), full=None,
+        generation=worker.generation, recent=(),
         sample_count=count, need_progress_estimate=False, **kwargs,
     )
 
@@ -46,7 +46,7 @@ class _GatedEvaluate:
             self.active -= 1
         return websocket_api._CustomCompletionResult(
             job=job, progress=self.progress, attempt_start_ms=None,
-            movement_start_index=None, progress_estimate=None,
+            progress_estimate=None,
         )
 
 
@@ -93,7 +93,7 @@ def test_evaluation_error_does_not_wedge_worker():
             raise RuntimeError("boom")
         return websocket_api._CustomCompletionResult(
             job=job, progress=MOVEMENT_DETECTED, attempt_start_ms=None,
-            movement_start_index=None, progress_estimate=None,
+            progress_estimate=None,
         )
 
     worker = websocket_api._LatestCompletionWorker(evaluate)
@@ -142,7 +142,7 @@ def test_slow_completion_does_not_block_sample_recording(monkeypatch):
     release = threading.Event()
     started = threading.Event()
 
-    def slow(template, samples):
+    def slow(template, samples, **_):
         started.set()
         release.wait(5)
         return MOVEMENT_COMPLETED, samples[0].timestamp_ms
@@ -175,7 +175,7 @@ def test_slow_completion_does_not_block_sample_recording(monkeypatch):
 def test_completed_state_never_regresses_and_retry_evaluates(monkeypatch):
     progress = [MOVEMENT_COMPLETED]
     session = _assessment_session(
-        monkeypatch, lambda template, samples: (progress[0], None),
+        monkeypatch, lambda template, samples, **_: (progress[0], None),
     )
     try:
         _record(session, 8)
@@ -188,7 +188,7 @@ def test_completed_state_never_regresses_and_retry_evaluates(monkeypatch):
         worker = session._custom_completion_worker
         worker.submit(websocket_api._CustomCompletionJob(
             generation=worker.generation,
-            recent=tuple(session._custom_samples), full=None,
+            recent=tuple(session._custom_samples),
             sample_count=len(session._custom_samples),
             need_progress_estimate=False,
         ))
@@ -215,7 +215,7 @@ def test_result_from_previous_attempt_never_applies_to_retry(monkeypatch):
     release = threading.Event()
     started = threading.Event()
 
-    def slow(template, samples):
+    def slow(template, samples, **_):
         started.set()
         release.wait(5)
         return MOVEMENT_COMPLETED, None
@@ -240,7 +240,7 @@ def test_result_from_previous_attempt_never_applies_to_retry(monkeypatch):
 
 def test_stop_waits_briefly_then_invalidates_pending_work(monkeypatch):
     session = _assessment_session(
-        monkeypatch, lambda template, samples: (MOVEMENT_DETECTED, None),
+        monkeypatch, lambda template, samples, **_: (MOVEMENT_DETECTED, None),
     )
     try:
         _record(session, 8)
@@ -250,7 +250,7 @@ def test_stop_waits_briefly_then_invalidates_pending_work(monkeypatch):
         assert worker.take_result() is None
         # A job from the stopped generation is refused outright.
         stale = websocket_api._CustomCompletionJob(
-            generation=worker.generation - 1, recent=(), full=None,
+            generation=worker.generation - 1, recent=(),
             sample_count=1, need_progress_estimate=False,
         )
         worker.submit(stale)
@@ -259,11 +259,72 @@ def test_stop_waits_briefly_then_invalidates_pending_work(monkeypatch):
         session.close()
 
 
+def test_live_jobs_never_carry_or_scan_the_full_recording(monkeypatch):
+    scans = []
+    session = _assessment_session(
+        monkeypatch, lambda template, samples, **_: (MOVEMENT_DETECTED, None),
+    )
+    monkeypatch.setattr(
+        websocket_api, "find_custom_assessment_start_index",
+        lambda template, samples: scans.append(len(samples)) or 0,
+    )
+    try:
+        _record(session, 40)
+        assert session._custom_completion_worker.drain(2)
+        session._apply_custom_completion_result()
+        assert session._custom_assessment_progress == MOVEMENT_DETECTED
+        assert not hasattr(websocket_api._CustomCompletionJob, "full")
+        # The growing whole-recording scan only happens once, at stop.
+        assert scans == []
+        assert session._custom_assessment_movement_start_index is None
+    finally:
+        session.close()
+
+
+def test_stop_resolves_movement_start_once_over_the_recording(monkeypatch):
+    scans = []
+    session = _assessment_session(
+        monkeypatch, lambda template, samples, **_: (MOVEMENT_DETECTED, None),
+    )
+    monkeypatch.setattr(
+        websocket_api, "find_custom_assessment_start_index",
+        lambda template, samples: scans.append(len(samples)) or 5,
+    )
+    try:
+        _record(session, 12)
+        assert session._custom_completion_worker.drain(2)
+        session._apply_custom_completion_result()
+        recorded = len(session._custom_samples)
+        session.stop_custom_capture()
+        assert scans == [recorded]
+        assert session._custom_assessment_movement_start_index == 5
+    finally:
+        session.close()
+
+
+def test_stop_keeps_waiting_recording_unanchored(monkeypatch):
+    scans = []
+    session = _assessment_session(
+        monkeypatch, lambda template, samples, **_: (WAITING_FOR_MOVEMENT, None),
+    )
+    monkeypatch.setattr(
+        websocket_api, "find_custom_assessment_start_index",
+        lambda template, samples: scans.append(len(samples)) or 5,
+    )
+    try:
+        _record(session, 12)
+        session.stop_custom_capture()
+        assert scans == []
+        assert session._custom_assessment_movement_start_index is None
+    finally:
+        session.close()
+
+
 def test_close_shuts_worker_down_without_waiting(monkeypatch):
     release = threading.Event()
     started = threading.Event()
 
-    def slow(template, samples):
+    def slow(template, samples, **_):
         started.set()
         release.wait(5)
         return MOVEMENT_COMPLETED, None
@@ -278,3 +339,45 @@ def test_close_shuts_worker_down_without_waiting(monkeypatch):
     worker = session._custom_completion_worker
     assert worker.drain(2)
     assert worker.take_result() is None
+
+
+def test_live_evaluation_reuses_one_cache_per_recording(monkeypatch):
+    caches = []
+    session = _assessment_session(
+        monkeypatch,
+        lambda template, samples, cache=None: caches.append(cache) or (MOVEMENT_DETECTED, None),
+    )
+    try:
+        _record(session, 8)
+        assert session._custom_completion_worker.drain(2)
+        _record(session, 1)
+        assert session._custom_completion_worker.drain(2)
+        assert len(caches) == 2 and caches[0] is not None and caches[0] is caches[1]
+        # A new recording (new generation) never sees the previous samples.
+        session._custom_samples = None
+        session._custom_capture_started_at = None
+        session._lifecycle = websocket_api.SESSION_ACTIVE
+        assert session.start_custom_capture(duration_seconds=30)[0]
+        _record(session, 8)
+        assert session._custom_completion_worker.drain(2)
+        assert caches[-1] is not caches[0]
+    finally:
+        session.close()
+
+
+def test_slow_evaluation_stretches_the_live_interval(monkeypatch):
+    session = _assessment_session(
+        monkeypatch, lambda template, samples, **_: (MOVEMENT_DETECTED, None),
+    )
+    try:
+        assert session._custom_completion_interval_s() == 0.5
+        session._custom_completion_last_eval_s = 0.1
+        assert session._custom_completion_interval_s() == 0.5
+        # The worker may be busy at most a quarter of the time, so preview and
+        # AI frames keep the GIL on slow machines.
+        session._custom_completion_last_eval_s = 0.2
+        assert session._custom_completion_interval_s() == pytest.approx(0.8)
+        session._custom_completion_last_eval_s = 5.0
+        assert session._custom_completion_interval_s() == 2.0
+    finally:
+        session.close()
