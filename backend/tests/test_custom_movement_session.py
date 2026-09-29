@@ -854,16 +854,17 @@ def test_live_alignment_input_stays_bounded_for_long_candidates(monkeypatch):
     assert evaluate_completion(template, samples) == MOVEMENT_COMPLETED
     assert aligned and all(
         len(candidate) <= completion._LIVE_ALIGNMENT_MAX_SAMPLES for candidate in aligned)
-    # Onset/boundary restarts plus newest-suffix candidates, one DTW per moving
-    # modality each: a fixed cap, independent of how long the session runs.
-    assert len(aligned) <= 3 * (
-        completion._MAX_ATTEMPT_RESTARTS + 1 + completion._MAX_SUFFIX_CANDIDATES)
+    # Onset restarts and newest suffixes are all screened, but only a fixed
+    # number of gate-passing candidates are aligned, one DTW per modality.
+    assert len(aligned) <= 3 * completion._MAX_ALIGNED_CANDIDATES
     assert all([f.timestamp_ms for f in c] == sorted(f.timestamp_ms for f in c)
                for c in aligned)
-    # Endpoints of the (much longer) retry are represented in its alignment.
-    retry_start = samples[len(idle) + 3 * len(wrong)].timestamp_ms
+    # Endpoints of the (much longer) retry are represented in its alignment;
+    # its onset is detected within one frame of the retry's first frame.
+    retry_index = len(idle) + 3 * len(wrong)
     assert any(c[-1].timestamp_ms == samples[-1].timestamp_ms
-               and c[0].timestamp_ms <= retry_start for c in aligned)
+               and samples[retry_index].timestamp_ms <= c[0].timestamp_ms
+               <= samples[retry_index + 1].timestamp_ms for c in aligned)
     # Observability still validates the full, unstrided source candidate.
     assert validated and max(validated) > completion._LIVE_ALIGNMENT_MAX_SAMPLES
 
@@ -875,6 +876,80 @@ def test_live_alignment_input_stays_bounded_for_long_candidates(monkeypatch):
         template, _long_live_candidate(idle + wrong * 3 + correct, prop=False)
     ) != MOVEMENT_COMPLETED
     assert all(len(c) <= completion._LIVE_ALIGNMENT_MAX_SAMPLES for c in aligned)
+
+
+def _bounded_dtw_scenarios():
+    idle = [0.0] * 20
+    wrong = [1 - index / 19 * 0.2 for index in range(20)] + [0.0] * 10
+    correct = [index / 99 for index in range(100)] + [1.0] * 20
+    return {
+        "failed_starts_then_slow_retry": _long_live_candidate(idle + wrong * 3 + correct),
+        "one_curved_bad_prefix": _hooks_then(1)[0],
+        "three_curved_bad_prefixes": _hooks_then(3)[0],
+        "oversized": tuple(_full_body_frame(index * 100, 2 * index / 39)
+                           for index in range(40)),
+        "reversed_retry": _hooks_then(1, phases=[1 - index / 19 for index in range(20)])[0],
+        "stationary_after": _hooks_then(1, phases=[0.0] * 20)[0],
+        "prop_missing": tuple(replace(frame, prop=None) for frame in _hooks_then(1)[0]),
+    }
+
+
+def test_live_completion_dtw_work_is_bounded_per_evaluation(
+        full_body_template, monkeypatch):
+    """Every live tick of long three-modality attempts aligns a fixed count.
+
+    Structural (DTW call counts, not timing): the onset restarts and all
+    suffix candidates are screened, yet one evaluation never runs more than
+    ``_MAX_ALIGNED_CANDIDATES`` DTWs per moving modality.
+    """
+    from assessment.custom_movement import completion
+    from assessment.custom_movement.completion import live_completion_window
+
+    assert len(full_body_template.required_modalities) == 3
+    budget = 3 * completion._MAX_ALIGNED_CANDIDATES
+    # Far below the former restarts-plus-suffixes worst case.
+    assert budget < 3 * (completion._MAX_ATTEMPT_RESTARTS + 1
+                         + completion._MAX_SUFFIX_CANDIDATES) // 2
+    calls = [0]
+    real_dtw = completion._dtw
+
+    def counting(*args):
+        calls[0] += 1
+        return real_dtw(*args)
+
+    monkeypatch.setattr(completion, "_dtw", counting)
+    for samples in _bounded_dtw_scenarios().values():
+        for end in range(8, len(samples) + 1, 3):
+            calls[0] = 0
+            evaluate_completion_segment(
+                full_body_template,
+                tuple(live_completion_window(full_body_template, samples[:end])))
+            assert calls[0] <= budget
+    # Rejected candidates never reach alignment at all.
+    calls[0] = 0
+    assert evaluate_completion(
+        full_body_template, _long_live_candidate([0.0] * 230)) == WAITING_FOR_MOVEMENT
+    assert calls[0] == 0
+
+
+def test_bounded_alignment_reports_what_the_unbounded_search_reports(
+        full_body_template, monkeypatch):
+    """Aligning only the best-ranked candidates keeps status and segment."""
+    from assessment.custom_movement import completion
+
+    scenarios = _bounded_dtw_scenarios()
+    bounded = {name: evaluate_completion_segment(full_body_template, samples)
+               for name, samples in scenarios.items()}
+    monkeypatch.setattr(completion, "_MAX_ALIGNED_CANDIDATES", 1000)
+    for name, samples in scenarios.items():
+        assert bounded[name] == evaluate_completion_segment(
+            full_body_template, samples), name
+    assert bounded["failed_starts_then_slow_retry"][0] == MOVEMENT_COMPLETED
+    assert bounded["one_curved_bad_prefix"][0] == MOVEMENT_COMPLETED
+    assert bounded["three_curved_bad_prefixes"][0] == MOVEMENT_COMPLETED
+    assert bounded["oversized"] == (MOVEMENT_COMPLETED, 0)
+    for name in ("reversed_retry", "stationary_after", "prop_missing"):
+        assert bounded[name][0] != MOVEMENT_COMPLETED, name
 
 
 def test_live_completion_prepares_semantic_hands_once_per_frame(monkeypatch):

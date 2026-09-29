@@ -460,6 +460,11 @@ _SUFFIX_STEPS_PER_DURATION = 3
 # (after a wrong, reversed, curved or paused prefix): at most this share of
 # the learned travel/turn in the learned direction just before its start.
 _MAX_LEAD_IN_PROGRESS = 0.25
+# Every onset and suffix candidate is screened with the cheap gates, but only
+# this many gate-passing candidates (closest learned path length first) pay
+# for pure-Python DTW in one call, so one evaluation performs at most this
+# many DTWs per moving modality however many restarts and suffixes exist.
+_MAX_ALIGNED_CANDIDATES = 2
 
 
 def _centroid(points: Mapping[str, tuple[float, float]]) -> tuple[float, float] | None:
@@ -553,7 +558,7 @@ def _continues_learned_rotation(
 
 def _continues_learned_travel(
     template: MovementTemplate,
-    reference: _PreparedSequence,
+    reference: "_ReferenceContext",
     normalized: _PreparedSequence,
     start: int,
     modalities: Sequence[str],
@@ -565,8 +570,8 @@ def _continues_learned_travel(
     """
     lead = normalized.span(_lead_in_index(template, normalized.frames, start), start + 1)
     for modality in modalities:
-        progress, _, travel = _displacement_match(reference, lead, modality)
-        if (travel >= 0.5 * _sequence_range(reference, modality)
+        progress, _, travel = _displacement_match(reference.sequence, lead, modality)
+        if (travel >= 0.5 * reference.range[modality]
                 and progress is not None and progress >= _MAX_LEAD_IN_PROGRESS):
             return True
     return False
@@ -591,8 +596,8 @@ def evaluate_completion_segment(
     # One prepared view of the reference and the bounded live sequence serves
     # every restart and gate in this call, so per-frame preprocessing scales
     # with the frame count rather than with helper calls.
-    reference = _prepare(template.canonical_sequence, required)
-    thresholds = _moving_thresholds(template, reference)
+    prepared_reference = _prepare(template.canonical_sequence, required)
+    thresholds = _moving_thresholds(template, prepared_reference)
     # Every candidate passes the same gates; among those that pass, the
     # segment that best fits the learned movement is reported, so a tolerated
     # failed prefix is not scored as part of the valid execution. Full-source
@@ -601,22 +606,21 @@ def evaluate_completion_segment(
     if not thresholds:
         # Rotation-only: an earlier wrong turn must not cancel a later valid
         # one in the whole-window trace, so newest suffixes are also judged.
-        status, fit, source = _evaluate_dynamic_candidate(
-            template, samples, bounded, None, reference, 0, thresholds)
+        status, fit = _evaluate_rotation_candidate(template, bounded)
         if status == MOVEMENT_COMPLETED:
-            passed.append((fit, None, source))
+            passed.append((fit, None, bounded))
         if template.rotation_trace is not None:
             for start in _suffix_starts(template, bounded):
                 if start == 0 or _continues_learned_rotation(template, bounded, start):
                     continue
-                suffix_status, fit, source = _evaluate_dynamic_candidate(
-                    template, samples, bounded[start:], None, reference, 0, thresholds)
+                suffix_status, fit = _evaluate_rotation_candidate(template, bounded[start:])
                 if suffix_status == MOVEMENT_COMPLETED:
-                    passed.append((fit, bounded[start].timestamp_ms, source))
+                    passed.append((fit, bounded[start].timestamp_ms, bounded[start:]))
         completed = _best_observable(template, passed)
         if completed is not None:
             return MOVEMENT_COMPLETED, completed[1]
         return (MOVEMENT_DETECTED if status == MOVEMENT_COMPLETED else status), None
+    reference = _reference_context(template, prepared_reference, thresholds)
     normalized = _prepare(normalize_sequence(
         bounded,
         use_pose_anchor="pose" in required,
@@ -625,19 +629,24 @@ def evaluate_completion_segment(
     offset = 0
     best: tuple[str, int | None] = (WAITING_FOR_MOVEMENT, None)
     tried: set[int] = set()
+    # Candidates that passed every cheap gate; only these may pay for DTW.
+    viable: list[_ScreenedCandidate] = []
     for _ in range(_MAX_ATTEMPT_RESTARTS + 1):
         start = _movement_start_index(normalized.tail(offset), thresholds)
         if start is None:
             break
         start += offset
         tried.add(start)
-        status, fit, source = _evaluate_dynamic_candidate(
-            template, samples, bounded, normalized, reference, start, thresholds)
-        start_ms = normalized.frames[start].timestamp_ms
-        if status == MOVEMENT_COMPLETED:
-            passed.append((fit, start_ms, source))
-            # Reported as in progress unless observability confirms it below.
+        screened = _screen_dynamic_candidate(
+            template, samples, normalized, reference, start, thresholds)
+        # A gate-passing onset is reported as in progress unless alignment and
+        # observability confirm it below, exactly like a failed alignment.
+        if isinstance(screened, str):
+            status = screened
+        else:
             status = MOVEMENT_DETECTED
+            viable.append(screened)
+        start_ms = normalized.frames[start].timestamp_ms
         if status == MOVEMENT_DETECTED or best[0] == WAITING_FOR_MOVEMENT:
             best = (status, start_ms if status != WAITING_FOR_MOVEMENT else best[1])
         # Re-anchor where this attempt turns around or rests, so a retry is
@@ -657,10 +666,19 @@ def evaluate_completion_segment(
         if (start <= first_onset or start in tried or _continues_learned_travel(
                 template, reference, normalized, start, list(thresholds))):
             continue
-        status, fit, source = _evaluate_dynamic_candidate(
-            template, samples, bounded, normalized, reference, start, thresholds)
-        if status == MOVEMENT_COMPLETED:
-            passed.append((fit, normalized.frames[start].timestamp_ms, source))
+        screened = _screen_dynamic_candidate(
+            template, samples, normalized, reference, start, thresholds)
+        if not isinstance(screened, str):
+            viable.append(screened)
+    # Bounded alignment: the candidates whose path length best matches the
+    # learned path (a whole execution, not a failed prefix plus it or a tail
+    # slice of it) pay for DTW; the newer start wins a tie.
+    ranked = sorted(viable, key=lambda item: (item.path_mismatch, -item.start))
+    for screened in ranked[:_MAX_ALIGNED_CANDIDATES]:
+        fit = _aligned_fit(screened, reference)
+        if fit is not None:
+            passed.append((fit, normalized.frames[screened.start].timestamp_ms,
+                           screened.source))
     completed = _best_observable(template, passed)
     if completed is not None:
         return MOVEMENT_COMPLETED, completed[1]
@@ -678,38 +696,90 @@ def _best_observable(
     return None
 
 
-def _evaluate_dynamic_candidate(
+def _evaluate_rotation_candidate(
+    template: MovementTemplate, bounded: Sequence[FrameSample]
+) -> tuple[str, float]:
+    """Rotation-only status and fit (turn error; ``inf`` unless completed)."""
+    if template.rotation_trace is None:
+        return WAITING_FOR_MOVEMENT, math.inf
+    trace = _rotation_trace(bounded)
+    if abs(trace.total_signed_rad) < MIN_ROTATION_AMOUNT_RAD:
+        return WAITING_FOR_MOVEMENT, math.inf
+    if (_rotation_track_stable(bounded)
+            and trace.coverage >= MIN_ROTATION_COVERAGE
+            and trace.pair_coverage >= MIN_ROTATION_PAIR_COVERAGE
+            and abs(trace.total_signed_rad - template.rotation_trace.total_signed_rad)
+            <= MAX_REFERENCE_ROTATION_SPREAD_RAD):
+        return MOVEMENT_COMPLETED, abs(
+            trace.total_signed_rad - template.rotation_trace.total_signed_rad)
+    return MOVEMENT_DETECTED, math.inf
+
+
+@dataclass(frozen=True)
+class _ReferenceContext:
+    """Reference-side values shared by every candidate of one evaluation.
+
+    Built once per ``evaluate_completion_segment`` call from the immutable
+    canonical sequence, keyed by moving modality, instead of once per
+    candidate.
+    """
+
+    sequence: _PreparedSequence
+    range: Mapping[str, float]
+    path: Mapping[str, float]
+    motion: Mapping[str, float]
+    sustained_motion: Mapping[str, float]
+    centred: Mapping[str, tuple[FrameSample, ...]]
+
+
+def _reference_context(
+    template: MovementTemplate,
+    reference: _PreparedSequence,
+    thresholds: Mapping[str, float],
+) -> _ReferenceContext:
+    return _ReferenceContext(
+        sequence=reference,
+        range={m: _sequence_range(reference, m) for m in thresholds},
+        path={m: _sequence_path_length(reference, m) for m in thresholds},
+        motion={m: _motion(template, reference, m) for m in thresholds},
+        sustained_motion={m: _sequence_motion(reference, m) for m in thresholds},
+        centred={m: _centred(reference, m) for m in thresholds},
+    )
+
+
+@dataclass(frozen=True)
+class _ScreenedCandidate:
+    """A candidate that passed every completion gate except shape alignment."""
+
+    start: int
+    candidate: _PreparedSequence
+    source: tuple[FrameSample, ...]
+    # Moving modalities whose cheap gates passed; only these are aligned.
+    gated: tuple[str, ...]
+    # Mean |log(path ratio)| over ``gated``: 0 when each travelled path is
+    # exactly as long as the learned one. Orders candidates for alignment.
+    path_mismatch: float
+    quorum: int
+    tolerance: float
+
+
+def _screen_dynamic_candidate(
     template: MovementTemplate,
     samples: Sequence[FrameSample],
-    bounded: Sequence[FrameSample],
-    normalized: _PreparedSequence | None,
-    reference: _PreparedSequence,
+    normalized: _PreparedSequence,
+    reference: _ReferenceContext,
     movement_start: int,
     thresholds: Mapping[str, float],
-) -> tuple[str, float, Sequence[FrameSample]]:
-    """Motion gates for one candidate attempt beginning at ``movement_start``.
+) -> str | _ScreenedCandidate:
+    """Cheap motion gates for one candidate beginning at ``movement_start``.
 
-    Returns the status, the fit (distance from the learned movement, lower is
-    better; ``inf`` unless completed) and the raw source frames. A completed
-    status is provisional: the caller must still confirm live observability
-    with ``_observable`` on the source, which is deferred so only the chosen
-    candidate pays for full-source validation.
+    Returns the non-completed status when a gate rejects the candidate, else
+    the state ``_aligned_fit`` needs. Every gate that does not depend on the
+    DTW alignment runs here, so a candidate that could never complete (too
+    little motion, too short, wrong direction, unsustained, short of quorum,
+    prop not following) is rejected without paying for DTW.
     """
     moving_modalities = list(thresholds)
-    if not moving_modalities:
-        if template.rotation_trace is not None:
-            trace = _rotation_trace(bounded)
-            if abs(trace.total_signed_rad) < MIN_ROTATION_AMOUNT_RAD:
-                return WAITING_FOR_MOVEMENT, math.inf, bounded
-            if (_rotation_track_stable(bounded)
-                    and trace.coverage >= MIN_ROTATION_COVERAGE
-                    and trace.pair_coverage >= MIN_ROTATION_PAIR_COVERAGE
-                    and abs(trace.total_signed_rad - template.rotation_trace.total_signed_rad)
-                    <= MAX_REFERENCE_ROTATION_SPREAD_RAD):
-                return MOVEMENT_COMPLETED, abs(
-                    trace.total_signed_rad - template.rotation_trace.total_signed_rad), bounded
-            return MOVEMENT_DETECTED, math.inf, bounded
-        return WAITING_FOR_MOVEMENT, math.inf, bounded
     # Tolerances below were tuned in shoulder widths; widen (never tighten)
     # them for hand-anchored templates whose units are much smaller.
     tolerance_scale = max(1.0, _motion_unit(template) or 1.0)
@@ -720,14 +790,10 @@ def _evaluate_dynamic_candidate(
         * widening / _MAX_SPREAD_WIDENING
     )
 
-    assert normalized is not None
     candidate = normalized.tail(movement_start)
     if not candidate.frames:
-        return WAITING_FOR_MOVEMENT, math.inf, ()
+        return WAITING_FOR_MOVEMENT
     candidate_start_ms = candidate.frames[0].timestamp_ms
-    source_candidate = tuple(
-        frame for frame in samples if frame.timestamp_ms >= candidate_start_ms
-    )
     # Sustained motion is reused by the movement and sustained gates below.
     motion_memo: dict[str, float] = {}
 
@@ -740,106 +806,126 @@ def _evaluate_dynamic_candidate(
     movement_detected = any(
         (_sequence_range(candidate, modality) if legacy_motion
          else candidate_motion(modality))
-        >= max(thresholds[modality], _motion(template, reference, modality) * 0.20)
+        >= max(thresholds[modality], reference.motion[modality] * 0.20)
         for modality in moving_modalities
     )
     if not movement_detected:
-        return WAITING_FOR_MOVEMENT, math.inf, source_candidate
+        return WAITING_FOR_MOVEMENT
     if len(candidate) < MIN_TRACKING_SAMPLES:
-        return MOVEMENT_DETECTED, math.inf, source_candidate
+        return MOVEMENT_DETECTED
 
     candidate_duration = candidate.frames[-1].timestamp_ms - candidate_start_ms
     if candidate_duration < _MIN_DYNAMIC_DURATION_MS:
-        return MOVEMENT_DETECTED, math.inf, source_candidate
+        return MOVEMENT_DETECTED
 
     # Each learned moving modality contributes evidence. A short glitch in one
     # modality cannot veto a well-observed sequence in the others, but every
-    # required modality still has to satisfy live observability below. Cheap
-    # gates run first; DTW and observability validation run only for a
-    # candidate that could still complete (all gates are required anyway).
+    # required modality still has to satisfy live observability later.
     evidence: list[DynamicMotionEvidence] = []
+    learned = reference.sequence
     for modality in moving_modalities:
-        expected_range = _sequence_range(reference, modality)
-        expected_path = _sequence_path_length(reference, modality)
+        expected_range = reference.range[modality]
+        expected_path = reference.path[modality]
         observed_path = _sequence_path_length(candidate, modality, bridge_gap_ms=450)
         start_error = next(
             (error for j in range(min(3, len(candidate)))
-             if (error := reference.error(0, candidate, j, modality)) is not None),
+             if (error := learned.error(0, candidate, j, modality)) is not None),
             None,
         )
         progress, end_error, reference_travel = _displacement_match(
-            reference, candidate, modality,
+            learned, candidate, modality,
         )
         ratio = observed_path / expected_path if expected_path > 0 else 0.0
-        last = len(reference) - 1
+        last = len(learned) - 1
         recent = next(
             (j for j in reversed(range(len(candidate)))
-             if reference.error(last, candidate, j, modality) is not None),
+             if learned.error(last, candidate, j, modality) is not None),
             None,
         )
         phase_errors = [
-            (error, -index) for index in range(len(reference))
+            (error, -index) for index in range(len(learned))
             if recent is not None
-            and (error := reference.error(index, candidate, recent, modality)) is not None
+            and (error := learned.error(index, candidate, recent, modality)) is not None
         ]
         phase_progress = (
-            -min(phase_errors)[1] / max(1, len(reference) - 1)
+            -min(phase_errors)[1] / max(1, len(learned) - 1)
             if phase_errors else 0.0
         )
         # Detector jitter accumulates path length but not sustained
         # displacement; a stationary attempt cannot satisfy this.
         sustained = candidate_motion(modality) >= max(
             0.6 * thresholds[modality],
-            _MIN_SUSTAINED_MOTION_RATIO * _sequence_motion(reference, modality),
+            _MIN_SUSTAINED_MOTION_RATIO * reference.sustained_motion[modality],
         )
         # Completion asks "same movement?", not "same spot/size?": identity
         # is judged on start-anchored net travel, while absolute start/end
         # placement and amplitude are left to compare_sequence scoring.
         directional = reference_travel >= 0.5 * expected_range
-        aligned_error = None
-        if (ratio >= _MIN_PATH_RATIO and sustained
-                and _same_movement(directional, progress, phase_progress, min_progress)):
-            centred_reference = _centred(reference, modality)
-            # Centre on the full candidate, then stride; path indexes below
-            # refer to this exact bounded sequence.
-            centred_candidate = _centred(candidate, modality, _LIVE_ALIGNMENT_MAX_SAMPLES)
-            alignment = _dtw(centred_reference, centred_candidate, (modality,))
-            errors = [
-                error for i, j in alignment
-                if (error := _modality_error(
-                    centred_reference[i], centred_candidate[j], modality)) is not None
-            ]
-            aligned_error = sum(errors) / len(errors) if errors else None
         evidence.append(DynamicMotionEvidence(
             modality=modality,
             path_ratio=ratio,
             start_error=start_error,
             end_error=end_error,
-            aligned_error=aligned_error,
+            aligned_error=None,
             phase_progress=phase_progress,
             progress=progress,
             directional=directional,
             reference_travel=reference_travel,
             sustained=sustained,
+            # Provisional: every gate except the aligned shape error.
             complete=(ratio >= _MIN_PATH_RATIO
                       and sustained
-                      and _same_movement(directional, progress, phase_progress, min_progress)
-                      and aligned_error is not None
-                      and aligned_error <= _MAX_ALIGNED_MOTION_ERROR * tolerance_scale),
+                      and _same_movement(directional, progress, phase_progress, min_progress)),
         ))
+    # Alignment can only fail a modality, never pass one these gates rejected,
+    # so a candidate short of the quorum here can never complete.
     quorum = len(moving_modalities) // 2 + 1 if len(moving_modalities) > 2 else 1
     if sum(item.complete for item in evidence) < quorum:
-        return MOVEMENT_DETECTED, math.inf, source_candidate
-    # Prop presence is enforced by live validation below. A learned prop path
-    # must show real travel (not a set-down prop) that roughly follows the
-    # learned action; its exact shape and endpoints are scored by
-    # compare_sequence rather than vetoing completion.
+        return MOVEMENT_DETECTED
+    # Prop presence is enforced by live validation. A learned prop path must
+    # show real travel (not a set-down prop) that roughly follows the learned
+    # action; its exact shape and endpoints are scored by compare_sequence
+    # rather than vetoing completion.
     if any(item.modality == "prop_translation" and not _prop_follows(item)
            for item in evidence):
-        return MOVEMENT_DETECTED, math.inf, source_candidate
-    aligned = [item.aligned_error for item in evidence
-               if item.complete and item.aligned_error is not None]
-    return MOVEMENT_COMPLETED, sum(aligned) / len(aligned), source_candidate
+        return MOVEMENT_DETECTED
+    gated = [item for item in evidence if item.complete]
+    return _ScreenedCandidate(
+        start=movement_start,
+        candidate=candidate,
+        source=tuple(frame for frame in samples if frame.timestamp_ms >= candidate_start_ms),
+        gated=tuple(item.modality for item in gated),
+        path_mismatch=sum(abs(math.log(item.path_ratio)) for item in gated) / len(gated),
+        quorum=quorum,
+        tolerance=_MAX_ALIGNED_MOTION_ERROR * tolerance_scale,
+    )
+
+
+def _aligned_fit(screened: _ScreenedCandidate, reference: _ReferenceContext) -> float | None:
+    """Mean aligned shape error of a screened candidate, ``None`` if it fails.
+
+    The fit is the distance from the learned movement (lower is better). A
+    fit is provisional: the caller must still confirm live observability with
+    ``_observable`` on the candidate's source.
+    """
+    aligned: list[float] = []
+    for modality in screened.gated:
+        centred_reference = reference.centred[modality]
+        # Centre on the full candidate, then stride; path indexes below
+        # refer to this exact bounded sequence.
+        centred_candidate = _centred(
+            screened.candidate, modality, _LIVE_ALIGNMENT_MAX_SAMPLES)
+        alignment = _dtw(centred_reference, centred_candidate, (modality,))
+        errors = [
+            error for i, j in alignment
+            if (error := _modality_error(
+                centred_reference[i], centred_candidate[j], modality)) is not None
+        ]
+        if errors and sum(errors) / len(errors) <= screened.tolerance:
+            aligned.append(sum(errors) / len(errors))
+    if len(aligned) < screened.quorum:
+        return None
+    return sum(aligned) / len(aligned)
 
 
 def _observable(template: MovementTemplate, source: Sequence[FrameSample]) -> bool:
