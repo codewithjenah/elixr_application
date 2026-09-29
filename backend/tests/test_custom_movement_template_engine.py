@@ -1,3 +1,5 @@
+import pytest
+
 from dataclasses import replace
 
 from assessment.custom_movement import (
@@ -532,3 +534,97 @@ def test_production_hand_index_reordering_does_not_lose_laterality():
     assert template.required_hand_sides == ("left", "right")
     assert compare_sequence(template, candidate).validation.valid
     assert compare_sequence(template, candidate).component_scores["Hand technique"] == 3
+
+
+def _legacy_dtw(reference, candidate, modalities):
+    """Pre-optimisation ``_dtw``: per-cell ``_modality_error`` (oracle)."""
+    from assessment.custom_movement.template_engine import _modality_error
+
+    rows, cols = len(reference), len(candidate)
+    costs = [[float("inf")] * (cols + 1) for _ in range(rows + 1)]
+    parent = {}
+    costs[0][0] = 0.0
+    for i in range(1, rows + 1):
+        for j in range(1, cols + 1):
+            values = [_modality_error(reference[i - 1], candidate[j - 1], m) for m in modalities]
+            observed = [v for v in values if v is not None]
+            local = sum(observed) / len(observed) if observed else 1.0
+            prior = min(((costs[i - 1][j], (i - 1, j)), (costs[i][j - 1], (i, j - 1)),
+                         (costs[i - 1][j - 1], (i - 1, j - 1))), key=lambda value: value[0])
+            costs[i][j] = local + prior[0]
+            parent[(i, j)] = prior[1]
+    path = []
+    current = (rows, cols)
+    while current != (0, 0):
+        path.append((current[0] - 1, current[1] - 1))
+        current = parent[current]
+    return list(reversed(path))
+
+
+def _dtw_frame(index, u, *, prop=True, pose_gap=False, hands_gap=False, side="left"):
+    import math as _math
+
+    x = 0.3 + 0.3 * u + 0.01 * _math.sin(index)
+    pose = {"11": Landmark(0.3, 0.3), "12": Landmark(0.7, 0.3),
+            "15": Landmark(x, 0.55 + 0.02 * _math.cos(index))}
+    if not pose_gap:
+        pose["13"] = Landmark(0.3 + 0.15 * u, 0.45, 0.9 if index % 4 else 0.3)
+    hands = {} if hands_gap else {
+        f"{side}:{index % 2}:{key}": Landmark(x + 0.0005 * key, 0.55 - 0.004 * key,
+                                               0.4 if key == 8 and index % 3 == 0 else 0.9)
+        for key in (0, 4, 5, 8, 9, 20)}
+    if not hands_gap and side == "right":
+        # Same semantic key from two detector slots: highest confidence wins.
+        hands["right:5:0"] = Landmark(x + 0.2, 0.1, 0.95)
+    return FrameSample(timestamp_ms=index * 33, pose=pose, hands=hands,
+                       prop=Landmark(x + 0.01, 0.45) if prop else None)
+
+
+def _dtw_sequence(count, phase=lambda u: u, **gaps):
+    frames = []
+    for index in range(count):
+        u = phase(index / max(1, count - 1))
+        frames.append(_dtw_frame(
+            index, u,
+            prop=not (gaps.get("prop_gaps") and index % 5 == 2),
+            pose_gap=bool(gaps.get("pose_gaps") and index % 3 == 1),
+            hands_gap=bool(gaps.get("hands_gaps") and index % 4 in (1, 2)),
+            side=("right" if gaps.get("mixed_sides") and index % 2 else "left"),
+        ))
+    return tuple(frames)
+
+
+@pytest.mark.parametrize(("modalities", "gaps", "rows", "cols"), (
+    (("prop_translation",), {}, 32, 64),
+    (("pose",), {}, 32, 64),
+    (("hands",), {}, 32, 64),
+    (("hands", "pose", "prop_translation"), {}, 32, 64),
+    (("prop_translation",), {"prop_gaps": True}, 32, 50),
+    (("pose",), {"pose_gaps": True}, 32, 41),
+    (("hands",), {"hands_gaps": True}, 32, 64),
+    (("hands",), {"mixed_sides": True}, 32, 57),
+    (("hands", "pose", "prop_translation"),
+     {"prop_gaps": True, "pose_gaps": True, "hands_gaps": True, "mixed_sides": True}, 17, 64),
+    (("hands", "pose", "prop_translation"), {}, 64, 9),
+))
+def test_dtw_path_matches_legacy_per_cell_implementation(modalities, gaps, rows, cols):
+    from assessment.custom_movement.template_engine import _dtw
+
+    reference = _dtw_sequence(rows, **gaps)
+    candidate = _dtw_sequence(cols, phase=lambda u: u * u, **gaps)
+    assert _dtw(reference, candidate, modalities) == _legacy_dtw(reference, candidate, modalities)
+    reversed_candidate = candidate[::-1]
+    assert (_dtw(reference, reversed_candidate, modalities)
+            == _legacy_dtw(reference, reversed_candidate, modalities))
+
+
+def test_dtw_normalises_hands_per_frame_not_per_cell(monkeypatch):
+    from assessment.custom_movement import template_engine
+
+    calls = []
+    real = template_engine._semantic_hands
+    monkeypatch.setattr(template_engine, "_semantic_hands",
+                        lambda hands: calls.append(1) or real(hands))
+    reference, candidate = _dtw_sequence(32), _dtw_sequence(64)
+    template_engine._dtw(reference, candidate, ("hands", "pose", "prop_translation"))
+    assert len(calls) == 32 + 64

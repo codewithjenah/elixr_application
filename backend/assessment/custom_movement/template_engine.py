@@ -1810,6 +1810,33 @@ def _modality_error(a: FrameSample, b: FrameSample, modality: str) -> float | No
     return sum(usable) / len(usable) if usable else None
 
 
+def _prepare_dtw_modality(frame: FrameSample, modality: str) -> Any:
+    """One frame's ``_modality_error`` inputs with usability pre-resolved.
+
+    Unusable points become ``None`` and the key set is built from the same
+    mapping, so intersection order and summation match ``_modality_error``.
+    """
+    if modality == "prop_translation":
+        return frame.prop if _usable(frame.prop) else None
+    points = frame.pose if modality == "pose" else _semantic_hands(frame.hands)
+    return set(points), {key: point if _usable(point) else None for key, point in points.items()}
+
+
+def _prepared_modality_error(a: Any, b: Any) -> float | None:
+    """Exactly ``_modality_error`` over ``_prepare_dtw_modality`` outputs."""
+    if a is None or b is None:
+        return None
+    if isinstance(a, Landmark):
+        return math.hypot(a.x - b.x, a.y - b.y)
+    (left_keys, left), (right_keys, right) = a, b
+    usable = [
+        math.hypot(p.x - q.x, p.y - q.y)
+        for key in left_keys & right_keys
+        if (p := left[key]) is not None and (q := right[key]) is not None
+    ]
+    return sum(usable) / len(usable) if usable else None
+
+
 def static_grip_side(
     target: FrameSample, required_modalities: Sequence[str]
 ) -> str | None:
@@ -2113,9 +2140,15 @@ def _dtw(reference: Sequence[FrameSample], candidate: Sequence[FrameSample], mod
     costs = [[float("inf")] * (cols + 1) for _ in range(rows + 1)]
     parent: dict[tuple[int, int], tuple[int, int]] = {}
     costs[0][0] = 0.0
+    # Per-frame preparation, done once per DTW call rather than per cell.
+    prepared = [
+        ([_prepare_dtw_modality(frame, m) for frame in reference],
+         [_prepare_dtw_modality(frame, m) for frame in candidate])
+        for m in modalities
+    ]
     for i in range(1, rows + 1):
         for j in range(1, cols + 1):
-            values = [_modality_error(reference[i - 1], candidate[j - 1], m) for m in modalities]
+            values = [_prepared_modality_error(left[i - 1], right[j - 1]) for left, right in prepared]
             observed = [v for v in values if v is not None]
             local = sum(observed) / len(observed) if observed else 1.0
             prior = min(((costs[i - 1][j], (i - 1, j)), (costs[i][j - 1], (i, j - 1)), (costs[i - 1][j - 1], (i - 1, j - 1))), key=lambda value: value[0])
