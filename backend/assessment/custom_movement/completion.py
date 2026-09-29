@@ -154,14 +154,15 @@ def _centred(sequence: Sequence[FrameSample], modality: str) -> tuple[FrameSampl
 def _bounded_samples(
     samples: Sequence[FrameSample], limit: int = _MAX_COMPLETION_SAMPLES
 ) -> tuple[FrameSample, ...]:
-    """Evenly strided real observations, keeping the first and last."""
-    if len(samples) <= limit:
+    """Exactly ``limit`` evenly spread real observations, keeping first and last.
+
+    For ``n > limit`` the step ``(n - 1) / (limit - 1)`` exceeds 1, so the
+    floored indexes are strictly increasing from 0 to ``n - 1``.
+    """
+    count = len(samples)
+    if count <= limit:
         return tuple(samples)
-    stride = (len(samples) - 1 + limit - 2) // (limit - 1)
-    bounded = list(samples[::stride])
-    if bounded[-1] is not samples[-1]:
-        bounded.append(samples[-1])
-    return tuple(bounded)
+    return tuple(samples[i * (count - 1) // (limit - 1)] for i in range(limit))
 
 
 def live_completion_window(

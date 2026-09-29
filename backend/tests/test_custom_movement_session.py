@@ -647,6 +647,24 @@ def _long_live_candidate(phases, **kwargs):
     return tuple(_full_body_frame(index * 33, u, **kwargs) for index, u in enumerate(phases))
 
 
+@pytest.mark.parametrize(("count", "limit", "expected"), (
+    (63, 64, 63), (64, 64, 64), (65, 64, 64), (66, 64, 64),
+    (100, 64, 64), (127, 64, 64), (230, 64, 64), (241, 240, 240),
+))
+def test_bounded_samples_selects_evenly_spread_real_frames(count, limit, expected):
+    from assessment.custom_movement.completion import _bounded_samples
+
+    samples = tuple(FrameSample(timestamp_ms=index * 33) for index in range(count))
+    bounded = _bounded_samples(samples, limit)
+    assert len(bounded) == expected
+    assert bounded[0] is samples[0] and bounded[-1] is samples[-1]
+    timestamps = [frame.timestamp_ms for frame in bounded]
+    assert all(a < b for a, b in zip(timestamps, timestamps[1:]))
+    original = {id(frame) for frame in samples}
+    assert all(id(frame) in original for frame in bounded)
+    assert len({id(frame) for frame in bounded}) == len(bounded)
+
+
 def test_live_alignment_input_stays_bounded_for_long_candidates(monkeypatch):
     from assessment.custom_movement import completion
 
