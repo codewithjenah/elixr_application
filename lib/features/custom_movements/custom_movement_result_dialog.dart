@@ -25,12 +25,26 @@ class CustomAssessmentSnapshot {
     required this.componentScores,
     required this.feedback,
     this.total,
+    this.rawTotal,
+    this.rawTotalMalformed = false,
     this.maxTotal,
     this.performanceLevel,
   });
 
+  /// User-facing overall percentage (70..100 for validated completions).
   final double scorePercent;
+
+  /// Persistence total (0..12). For validated completions this is the
+  /// percentage-derived grade, not the raw rubric; classroom persistence and
+  /// [performanceLevel] use it.
   final int? total;
+
+  /// Backend-authoritative raw rubric total; sent only for validated
+  /// completions (`raw_total`).
+  final int? rawTotal;
+
+  /// `raw_total` was sent but unusable, so [total] must not stand in for it.
+  final bool rawTotalMalformed;
   final int? maxTotal;
   final String? performanceLevel;
 
@@ -62,10 +76,23 @@ class CustomAssessmentSnapshot {
     final total = raw['total'];
     final maxTotal = raw['max_total'];
     final level = raw['performance_level'];
+    final max = maxTotal is num && maxTotal > 0 ? maxTotal.toInt() : null;
+    final rawTotal = raw['raw_total'];
+    final validRawTotal =
+        rawTotal is num &&
+            rawTotal.isFinite &&
+            rawTotal == rawTotal.roundToDouble() &&
+            max != null &&
+            rawTotal >= 0 &&
+            rawTotal <= max
+        ? rawTotal.toInt()
+        : null;
     return CustomAssessmentSnapshot(
       scorePercent: percent.toDouble(),
       total: total is num ? total.toInt() : null,
-      maxTotal: maxTotal is num && maxTotal > 0 ? maxTotal.toInt() : null,
+      rawTotal: validRawTotal,
+      rawTotalMalformed: raw.containsKey('raw_total') && validRawTotal == null,
+      maxTotal: max,
       performanceLevel: level is String && level.trim().isNotEmpty
           ? level.trim()
           : null,
@@ -79,6 +106,17 @@ class CustomAssessmentSnapshot {
   }
 
   int get roundedPercent => scorePercent.round();
+
+  /// Rubric total to display: `raw_total` when sent, else (legacy and
+  /// incomplete payloads, where `total` is the rubric) `total`. Null when
+  /// `raw_total` is malformed or the total is out of range.
+  int? get rubricTotal {
+    if (rawTotal != null) return rawTotal;
+    final fallback = total;
+    final max = maxTotal;
+    if (rawTotalMalformed || fallback == null || max == null) return null;
+    return fallback >= 0 && fallback <= max ? fallback : null;
+  }
 
   /// Numeric component scores for persistence.
   Map<String, double> get persistedComponentScores => {
@@ -446,7 +484,9 @@ class _ScoreCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final total = assessment.total;
+    // The large percentage and this 0..12 rubric are different measures;
+    // the percentage-derived persistence total is never shown as the rubric.
+    final rubric = assessment.rubricTotal;
     final maxTotal = assessment.maxTotal;
     final level = assessment.performanceLevelLabel;
     return Container(
@@ -472,8 +512,8 @@ class _ScoreCard extends StatelessWidget {
                   spacing: AppSpacing.sm,
                   runSpacing: 4,
                   children: [
-                    if (total != null && maxTotal != null)
-                      _Chip(label: 'Score $total / $maxTotal'),
+                    if (rubric != null && maxTotal != null)
+                      _Chip(label: 'Rubric $rubric / $maxTotal'),
                     if (level != null) _Chip(label: level),
                     _Chip(label: duration),
                   ],

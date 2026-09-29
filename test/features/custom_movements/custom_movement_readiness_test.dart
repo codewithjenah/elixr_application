@@ -13,6 +13,7 @@ import 'package:elixr_application/data/models/ws_protocol.dart';
 import 'package:elixr_application/data/repositories/classroom_assignment_repository.dart';
 import 'package:elixr_application/data/repositories/custom_movement_repository.dart';
 import 'package:elixr_application/features/custom_movements/custom_movement_practice_screen.dart';
+import 'package:elixr_application/features/custom_movements/custom_movement_result_dialog.dart';
 import 'package:elixr_application/features/practice/practice_game_widgets.dart';
 import 'package:elixr_application/features/practice/widgets/training_action_area.dart';
 import 'package:audioplayers/audioplayers.dart';
@@ -1253,7 +1254,7 @@ void main() {
         findsNothing,
       );
       expect(find.text('83%'), findsOne);
-      expect(find.text('Score 10 / 12'), findsOne);
+      expect(find.text('Rubric 10 / 12'), findsOne);
       expect(find.text('Proficient'), findsOne);
       expect(find.text('3 / 3'), findsOne);
       expect(find.text('•  Good timing'), findsOne);
@@ -1550,7 +1551,7 @@ void main() {
       expect(find.text('Practice needs attention'), findsNothing);
       expect(find.byKey(const ValueKey('custom-result-dialog')), findsOne);
       expect(find.text('25%'), findsOne);
-      expect(find.text('Score 3 / 12'), findsOne);
+      expect(find.text('Rubric 3 / 12'), findsOne);
       expect(
         find.text('•  Time expired before the full movement was completed.'),
         findsOne,
@@ -1826,7 +1827,7 @@ void main() {
       expect(find.text('Back to Assignment'), findsOne);
       expect(find.text('Back to My Movements'), findsNothing);
       expect(find.text('83%'), findsOne);
-      expect(find.text('Score 10 / 12'), findsOne);
+      expect(find.text('Rubric 10 / 12'), findsOne);
       expect(find.text('Proficient'), findsOne);
       expect(find.text('3 / 3'), findsOne);
       expect(find.text('•  Good timing'), findsOne);
@@ -1916,6 +1917,138 @@ void main() {
     );
     await tester.pumpWidget(const SizedBox());
     await socket.closeTestStreams();
+  });
+
+  group('completed-attempt rubric display', () {
+    // A validated weak completion: 70% base + raw 2/12, persisted as 9/12.
+    Map<String, dynamic> weakCompletion({Object? rawTotal = 2}) => {
+      'score_percent': 75.0,
+      'raw_total': rawTotal,
+      'total': 9,
+      'max_total': 12,
+      'performance_level': 'competent',
+      'movement_completed': true,
+      'component_scores': {
+        'Body technique': 0,
+        'Hand technique': 0,
+        'Prop path': 0,
+        'Timing': 1,
+        'Control/stability': 1,
+      },
+      'feedback': <String>[],
+    };
+
+    test('snapshot keeps raw rubric and persistence total apart', () {
+      final snapshot = CustomAssessmentSnapshot.tryFrom(weakCompletion())!;
+      expect(snapshot.scorePercent, 75.0);
+      expect(snapshot.rawTotal, 2);
+      expect(snapshot.total, 9);
+      expect(snapshot.rubricTotal, 2);
+      expect(snapshot.performanceLevel, 'competent');
+      expect(snapshot.componentScores, {
+        'Body technique': 0,
+        'Hand technique': 0,
+        'Prop path': 0,
+        'Timing': 1,
+        'Control/stability': 1,
+      });
+    });
+
+    test('malformed raw_total never falls back to the persistence total', () {
+      for (final bad in <Object?>[null, 2.5, -1, 13, '2', double.nan]) {
+        final snapshot = CustomAssessmentSnapshot.tryFrom(
+          weakCompletion(rawTotal: bad),
+        )!;
+        expect(snapshot.rawTotal, isNull, reason: '$bad');
+        expect(snapshot.rubricTotal, isNull, reason: '$bad');
+        expect(snapshot.total, 9, reason: '$bad');
+      }
+      // Integer-valued doubles from JSON are accepted.
+      expect(
+        CustomAssessmentSnapshot.tryFrom(
+          weakCompletion(rawTotal: 2.0),
+        )!.rubricTotal,
+        2,
+      );
+    });
+
+    test('legacy and incomplete payloads without raw_total use total', () {
+      final snapshot = CustomAssessmentSnapshot.tryFrom(
+        weakCompletion()..remove('raw_total'),
+      )!;
+      expect(snapshot.rawTotal, isNull);
+      expect(snapshot.rubricTotal, 9);
+      final outOfRange = CustomAssessmentSnapshot.tryFrom(
+        weakCompletion()
+          ..remove('raw_total')
+          ..['total'] = 20,
+      )!;
+      expect(outOfRange.rubricTotal, isNull);
+    });
+
+    Future<_ClassroomRepository> finishClassroom(
+      WidgetTester tester,
+      Map<String, dynamic> assessment,
+    ) async {
+      final socket = _CustomSocket()..nextAssessment = assessment;
+      final classroom = _ClassroomRepository();
+      await _pumpPractice(tester, socket, classroomRepository: classroom);
+      await _autoStartThroughCountdown(tester, socket);
+      await _completeMovement(tester, socket);
+      addTearDown(socket.closeTestStreams);
+      return classroom;
+    }
+
+    testWidgets('weak completion shows 75% and Rubric 2 / 12, persists 9', (
+      tester,
+    ) async {
+      final classroom = await finishClassroom(tester, weakCompletion());
+      expect(find.text('75%'), findsOne);
+      expect(find.text('Rubric 2 / 12'), findsOne);
+      expect(find.text('Score 9 / 12'), findsNothing);
+      expect(find.text('Rubric 9 / 12'), findsNothing);
+      expect(find.text('0 / 3'), findsNWidgets(3));
+      expect(find.text('1 / 3'), findsNWidgets(2));
+      // Classroom persistence keeps the percentage-derived grade and level.
+      expect(classroom.savedTotal, 9);
+      expect(classroom.savedLevel, 'competent');
+      expect(classroom.savedComponents, {
+        'Body technique': 0,
+        'Hand technique': 0,
+        'Prop path': 0,
+        'Timing': 1,
+        'Control/stability': 1,
+      });
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('reference-quality completion shows Rubric 12 / 12', (
+      tester,
+    ) async {
+      final classroom = await finishClassroom(
+        tester,
+        weakCompletion(rawTotal: 12)
+          ..['score_percent'] = 100.0
+          ..['total'] = 12
+          ..['performance_level'] = 'mastered',
+      );
+      expect(find.text('100%'), findsOne);
+      expect(find.text('Rubric 12 / 12'), findsOne);
+      expect(classroom.savedTotal, 12);
+      expect(classroom.savedLevel, 'mastered');
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('malformed raw_total hides the rubric chip', (tester) async {
+      final classroom = await finishClassroom(
+        tester,
+        weakCompletion(rawTotal: 'two'),
+      );
+      expect(find.text('75%'), findsOne);
+      expect(find.textContaining('/ 12'), findsNothing);
+      expect(classroom.savedTotal, 9);
+      await tester.pumpWidget(const SizedBox());
+    });
   });
 
   group('practice audio', () {
