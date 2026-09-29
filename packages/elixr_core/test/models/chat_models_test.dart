@@ -83,4 +83,45 @@ void main() {
       isNull,
     );
   });
+
+  test(
+    'conversation parser reads synced avatar and falls back when absent',
+    () {
+      final now = DateTime.utc(2026, 9, 29);
+      ChatConversation? parse(Map<String, dynamic> teacher) =>
+          ChatConversation.tryFromMap(
+            {
+              'participant_snapshots': {
+                'teacher': teacher,
+                'deleted_user': {
+                  'id': 'deleted_user',
+                  'display_name': 'Deleted user',
+                  'role': 'Trainee',
+                },
+              },
+              'updated_at': now,
+              'status': 'archived',
+            },
+            id: 'conversation',
+            readDate: readDate,
+          );
+      final synced = parse({
+        'id': 'teacher',
+        'display_name': 'Taylor Teacher',
+        'role': 'Teacher',
+        'avatar_url': 'https://example.com/a.png',
+      });
+      expect(
+        synced?.otherParticipant('deleted_user')?.avatarUrl,
+        'https://example.com/a.png',
+      );
+      expect(synced?.otherParticipant('teacher')?.displayName, 'Deleted user');
+      final removed = parse({
+        'id': 'teacher',
+        'display_name': 'Taylor Teacher',
+        'role': 'Teacher',
+      });
+      expect(removed?.otherParticipant('deleted_user')?.avatarUrl, isNull);
+    },
+  );
 }

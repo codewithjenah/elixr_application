@@ -701,6 +701,64 @@ begin
   perform tests.check((select (unread_counts ->> auth.uid()::text)::int from public.chat_conversations) = 1,
     'recipient unread count increments');
 end $$;
+
+-- Profile identity changes refresh the participant's snapshot in existing
+-- conversations without touching ordering or read state.
+create temp table chat_sync_before on commit drop as
+  select * from public.chat_conversations;
+select public.update_own_profile('{"profile_picture_url": "https://example.com/a.png"}'::jsonb);
+do $$
+declare
+  c public.chat_conversations;
+  b chat_sync_before;
+  v_me text := auth.uid()::text;
+  v_other text := '22222222-2222-4222-8222-222222222222';
+begin
+  select * into c from public.chat_conversations;
+  select * into b from chat_sync_before;
+  perform tests.check(c.participant_snapshots #>> array[v_me, 'avatar_url'] = 'https://example.com/a.png',
+    'avatar upload refreshes the existing conversation snapshot');
+  perform tests.check(c.participant_snapshots -> v_other = b.participant_snapshots -> v_other,
+    'other participant snapshot is unchanged');
+  perform tests.check(c.updated_at = b.updated_at and c.last_message_at = b.last_message_at
+      and c.last_message_id = b.last_message_id and c.last_message_body = b.last_message_body
+      and c.unread_counts = b.unread_counts and c.read_at = b.read_at and c.cleared_at = b.cleared_at,
+    'snapshot sync leaves ordering, message and read state untouched');
+end $$;
+select public.update_own_profile('{"profile_picture_url": "https://example.com/b.png"}'::jsonb);
+do $$
+begin
+  perform tests.check((select participant_snapshots #>> array[auth.uid()::text, 'avatar_url']
+    from public.chat_conversations) = 'https://example.com/b.png', 'avatar change refreshes the snapshot');
+end $$;
+select public.update_own_profile('{"profile_picture_url": null, "first_name": "Renamed"}'::jsonb);
+do $$
+declare
+  v jsonb;
+begin
+  select participant_snapshots -> auth.uid()::text into v from public.chat_conversations;
+  perform tests.check(not (v ? 'avatar_url'), 'avatar removal drops avatar_url from the snapshot');
+  perform tests.check(v ->> 'display_name' = (select full_name from public.profiles where id = auth.uid()),
+    'name change refreshes the snapshot display name');
+end $$;
+reset role;
+do $$
+begin
+  -- A stale snapshot (pre-sync data) is repaired by the backfill.
+  update public.chat_conversations
+    set participant_snapshots = jsonb_set(participant_snapshots,
+      array['11111111-1111-4111-8111-111111111111', 'avatar_url'], '"https://stale.example/x.png"');
+  update public.profiles set profile_picture_url = 'https://example.com/c.png'
+    where id = '11111111-1111-4111-8111-111111111111';
+  update public.chat_conversations
+    set participant_snapshots = jsonb_set(participant_snapshots,
+      array['11111111-1111-4111-8111-111111111111', 'avatar_url'], '"https://stale.example/x.png"');
+  perform private.refresh_all_chat_participant_snapshots();
+  perform tests.check((select participant_snapshots #>> array['11111111-1111-4111-8111-111111111111', 'avatar_url']
+    from public.chat_conversations) = 'https://example.com/c.png', 'backfill repairs stale snapshots');
+end $$;
+set local role authenticated;
+select tests.login('11111111-1111-4111-8111-111111111111');
 insert into public.chat_blocks (blocker_id, blocked_id)
 values ('11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222');
 select tests.login('22222222-2222-4222-8222-222222222222');
@@ -725,6 +783,15 @@ begin
   perform tests.check((select count(*) from public.chat_conversations
     where participant_a = 'deleted_user' or participant_b = 'deleted_user') = 1,
     'chat with an active user is archived anonymously');
+  perform private.refresh_all_chat_participant_snapshots();
+  update public.profiles set profile_picture_url = 'https://example.com/d.png'
+    where id = '11111111-1111-4111-8111-111111111111';
+  perform tests.check((select participant_snapshots -> 'deleted_user' ->> 'display_name'
+    from public.chat_conversations where participant_a = 'deleted_user' or participant_b = 'deleted_user')
+    = 'Deleted user', 'snapshot sync leaves the anonymized participant untouched');
+  perform tests.check((select participant_snapshots #>> array['11111111-1111-4111-8111-111111111111', 'avatar_url']
+    from public.chat_conversations where participant_a = 'deleted_user' or participant_b = 'deleted_user')
+    = 'https://example.com/d.png', 'archived conversation keeps syncing the remaining participant');
   delete from auth.users where id = '22222222-2222-4222-8222-222222222222';
   perform tests.check((select count(*) from public.sessions
     where user_id = '22222222-2222-4222-8222-222222222222') = 0, 'user data cascades on deletion');
