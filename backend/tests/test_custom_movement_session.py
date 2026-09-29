@@ -1684,7 +1684,9 @@ def test_custom_assessment_uses_global_yolo_cadence():
     assert session._yolo_frame_skip == YOLO_FRAME_SKIP
 
 
-def test_skipped_yolo_assessment_tick_never_samples_coasted_prop():
+def test_skipped_yolo_assessment_tick_never_samples_extrapolated_prop():
+    from vision.prop_tracker import PropTracker
+
     session = websocket_api.VisionSession(
         "Custom Movement",
         session_mode="custom_assessment",
@@ -1694,22 +1696,58 @@ def test_skipped_yolo_assessment_tick_never_samples_coasted_prop():
     session._custom_samples = []
     session._custom_capture_started_at = started
     session._custom_capture_deadline = None
-    session._last_live_bottles = [
-        PropDetection(10, 10, 30, 50, 0.9, track_id=4, yolo_confirmed=False)
-    ]
     frame = np.zeros((100, 100, 3), dtype=np.uint8)
 
-    normalized = session._cached_normalized_props()
-    session._record_custom_sample(
-        captured=CapturedFrame(frame, started + 0.1, 1),
-        frame=frame,
-        normalized=normalized,
-        hands=None, pose=None, yolo_attempted=False,
+    # Two genuine YOLO confirmations give the real tracker a velocity.
+    tracker = PropTracker()
+    tracker.update([PropDetection(10, 10, 30, 50, 0.9)], timestamp=started - 0.2)
+    confirmed = tracker.update(
+        [PropDetection(14, 10, 34, 50, 0.9)], timestamp=started - 0.1
+    )
+    session._last_live_bottles = list(confirmed)
+    session.prop_detector = SimpleNamespace(
+        extrapolate_detections=lambda *, bottles, shakers, now: (
+            tracker.extrapolate(bottles, now), tracker.extrapolate(shakers, now)
+        )
     )
 
-    assert normalized.primary == ()
-    assert session._custom_samples[0].prop is None
-    assert session._custom_samples[0].prop_metadata == {"yolo_attempted": False}
+    # Skipped YOLO tick: the cached box is coasted but stays yolo_confirmed.
+    skipped = session._cached_normalized_props()
+    assert len(skipped.primary) == 1
+    assert skipped.primary[0].yolo_confirmed is True
+    assert skipped.primary[0].x1 != confirmed[0].x1
+    pose = SimpleNamespace(
+        points={11: SimpleNamespace(x=0.3, y=0.3)}, visibility={11: 0.9}
+    )
+    hands = SimpleNamespace(hands=[SimpleNamespace(
+        handedness="Left", points={0: SimpleNamespace(x=0.2, y=0.4)},
+    )])
+    session._record_custom_sample(
+        captured=CapturedFrame(frame, started + 0.1, 1),
+        frame=frame, normalized=skipped,
+        hands=hands, pose=pose, yolo_attempted=False,
+    )
+
+    sample = session._custom_samples[0]
+    assert sample.prop is None
+    assert sample.prop_metadata == {"yolo_attempted": False}
+    assert set(sample.pose) == {"11"}
+    assert set(sample.hands) == {"left:0:0"}
+    assert session._custom_previous_prop is None
+
+    # A genuine YOLO-attempted confirmed tick still records prop evidence.
+    session._record_custom_sample(
+        captured=CapturedFrame(frame, started + 0.2, 2),
+        frame=frame,
+        normalized=session._normalize_detections(bottles=list(confirmed), shakers=[]),
+        hands=None, pose=None, yolo_attempted=True,
+    )
+
+    recorded = session._custom_samples[1]
+    assert recorded.prop is not None
+    assert recorded.prop_metadata["yolo_attempted"] is True
+    assert recorded.prop_metadata["yolo_confirmed"] is True
+    assert session._custom_previous_prop is not None
 
 
 def test_custom_capture_diagnostics_are_bounded_and_cause_oriented():

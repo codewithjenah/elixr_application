@@ -1653,12 +1653,16 @@ class VisionSession:
 
         # Custom templates are authoritative assessment input.  The tracker
         # may coast a box for presentation, but a coasted prop must never
-        # become a recorded reference/assessment landmark.
+        # become a recorded reference/assessment landmark.  On a skipped YOLO
+        # tick the cached box may be extrapolated yet still carry
+        # ``yolo_confirmed=True``, so only a YOLO-attempted tick is evidence.
         detection = (
             max(normalized.primary, key=lambda item: item.confidence)
-            if normalized.primary
+            if yolo_attempted and normalized.primary
             else None
         )
+        if detection is not None and not detection.yolo_confirmed:
+            detection = None
         prop_point = None
         prop_metadata: dict[str, Any] = {"yolo_attempted": yolo_attempted}
         if detection is not None:
