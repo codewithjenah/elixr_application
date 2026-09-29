@@ -635,8 +635,12 @@ def validate_assessment_sequence(
         codes.append(FailureCode.INVALID_TIMESTAMPS)
     if any(b - a > max_interval_ms for a, b in zip(timestamps, timestamps[1:])):
         codes.append(FailureCode.TRACK_LOSS)
+    semantic_frames: list[dict[str, Landmark]] | None = None
     for modality in required:
         sides = tuple(sorted(set(required_hand_sides))) if modality == "hands" else (None,)
+        if modality == "hands" and template is not None and semantic_frames is None:
+            # Re-keyed once per frame, shared by every required hand side.
+            semantic_frames = [_semantic_hands(frame.hands) for frame in samples]
         for side in sides or (None,):
             expected: Mapping[str, Landmark] = {}
             if template is not None and modality in {"pose", "hands"}:
@@ -652,8 +656,9 @@ def validate_assessment_sequence(
             if expected:
                 minimum = max(1, math.ceil(len(expected) * 0.5))
                 present = []
-                for frame in samples:
-                    observed = frame.pose if modality == "pose" else _semantic_hands(frame.hands)
+                for index, frame in enumerate(samples):
+                    observed = (frame.pose if modality == "pose"
+                                else semantic_frames[index])  # type: ignore[index]
                     present.append(sum(
                         _usable(observed.get(key)) for key in expected
                     ) >= minimum)
@@ -1152,6 +1157,11 @@ def sequence_motion(sequence: Sequence[FrameSample], modality: str) -> float:
         for key, point in points.items():
             if (modality != "pose" or key in MEANINGFUL_POSE_KEYS) and _usable(point):
                 tracks.setdefault(key, []).append(point)
+    return landmark_tracks_motion(tracks)
+
+
+def landmark_tracks_motion(tracks: Mapping[str, Sequence[Landmark]]) -> float:
+    """``sequence_motion`` for hands/pose from already-built landmark tracks."""
     ranges = sorted(
         (_smoothed_range(points) for points in tracks.values() if len(points) >= 3),
         reverse=True,

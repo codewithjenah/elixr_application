@@ -716,6 +716,39 @@ def test_live_alignment_input_stays_bounded_for_long_candidates(monkeypatch):
     assert all(len(c) <= completion._LIVE_ALIGNMENT_MAX_SAMPLES for c in aligned)
 
 
+def test_live_completion_prepares_semantic_hands_once_per_frame(monkeypatch):
+    """Per-frame hand re-keying scales with frames, not with helper calls.
+
+    Structural (call counts, not timing): normalisation, the prepared view
+    and raw-source validation each re-key a frame once; reference and the
+    bounded DTW input add a size-independent constant.
+    """
+    from assessment.custom_movement import template_engine
+
+    reference = tuple(_full_body_frame(index * 100, index / 19) for index in range(20))
+    template = build_template([reference] * 3)
+    idle = [0.0] * 20
+    wrong = [1 - index / 19 * 0.2 for index in range(20)] + [0.0] * 10
+    correct = [index / 99 for index in range(100)] + [1.0] * 20
+    calls = [0]
+    real = template_engine._semantic_hands
+
+    def counting(hands):
+        calls[0] += 1
+        return real(hands)
+
+    monkeypatch.setattr(template_engine, "_semantic_hands", counting)
+    counts = {}
+    for samples in (_long_live_candidate([index / 63 for index in range(64)]),
+                    _long_live_candidate(idle + wrong * 3 + correct)):
+        calls[0] = 0
+        assert evaluate_completion(template, samples) == MOVEMENT_COMPLETED
+        counts[len(samples)] = calls[0]
+    (short, short_calls), (long, long_calls) = sorted(counts.items())
+    assert long_calls <= 3 * long + 400
+    assert (long_calls - short_calls) / (long - short) <= 4
+
+
 def test_completion_after_failed_attempt_scores_only_the_completed_segment():
     template = _template()
     _, samples = _wrong_then_correct()

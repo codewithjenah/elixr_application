@@ -2,9 +2,10 @@
 
 import math
 from dataclasses import dataclass, replace
-from typing import Mapping, Sequence
+from typing import Any, Mapping, Sequence
 
 from .template_engine import (
+    MEANINGFUL_POSE_KEYS,
     MAX_REFERENCE_ROTATION_SPREAD_RAD,
     MIN_ROTATION_AMOUNT_RAD,
     MIN_ROTATION_COVERAGE,
@@ -17,12 +18,13 @@ from .template_engine import (
     MovementTemplate,
     _dtw,
     _modality_error,
+    _prepare_dtw_modality,
+    _prepared_modality_error,
     _rotation_trace,
     _rotation_track_stable,
-    _semantic_hands,
-    _usable,
     compare_sequence,
     final_frames_still,
+    landmark_tracks_motion,
     motion_thresholds,
     normalize_sequence,
     sequence_motion,
@@ -114,15 +116,66 @@ def _spread_widening(template: MovementTemplate) -> float:
     return min(_MAX_SPREAD_WIDENING, max(0.0, float(spread)))
 
 
-def _centred(sequence: Sequence[FrameSample], modality: str) -> tuple[FrameSample, ...]:
+def _frame_points(prepared: Any) -> dict[str, tuple[float, float]]:
+    """Usable ``(x, y)`` points of one ``_prepare_dtw_modality`` output."""
+    if prepared is None:
+        return {}
+    if not isinstance(prepared, tuple):
+        return {"prop": (prepared.x, prepared.y)}
+    return {key: (p.x, p.y) for key, p in prepared[1].items() if p is not None}
+
+
+@dataclass(frozen=True)
+class _PreparedSequence:
+    """Per-evaluation view of frames with modality data resolved once.
+
+    Built once per ``evaluate_completion_segment`` call (never cached across
+    calls), so semantic hands, usability and point mappings are derived once
+    per frame instead of once per helper invocation. ``values`` holds exact
+    ``_prepare_dtw_modality`` outputs, so ``_prepared_modality_error`` over
+    them equals ``_modality_error`` over the frames.
+    """
+
+    frames: tuple[FrameSample, ...]
+    values: Mapping[str, tuple[Any, ...]]
+    points: Mapping[str, tuple[dict[str, tuple[float, float]], ...]]
+
+    def __len__(self) -> int:
+        return len(self.frames)
+
+    def tail(self, start: int) -> "_PreparedSequence":
+        return _PreparedSequence(
+            self.frames[start:],
+            {m: v[start:] for m, v in self.values.items()},
+            {m: p[start:] for m, p in self.points.items()},
+        )
+
+    def error(self, i: int, other: "_PreparedSequence", j: int, modality: str) -> float | None:
+        return _prepared_modality_error(self.values[modality][i], other.values[modality][j])
+
+
+def _prepare(frames: Sequence[FrameSample], modalities: Sequence[str]) -> _PreparedSequence:
+    frames = tuple(frames)
+    values = {m: tuple(_prepare_dtw_modality(frame, m) for frame in frames) for m in modalities}
+    return _PreparedSequence(
+        frames, values, {m: tuple(_frame_points(v) for v in vs) for m, vs in values.items()})
+
+
+def _centred(
+    sequence: _PreparedSequence, modality: str, limit: int | None = None
+) -> tuple[FrameSample, ...]:
     """Subtract each point's mean position, keeping only the path's shape.
 
     Removes where the user stands, where the movement starts, and fixed
     offsets from different body proportions, so DTW compares the pattern.
+    The mean always spans the full sequence; with ``limit`` only the evenly
+    strided frames ``_bounded_samples`` would keep are materialised.
     """
-    observed = [points for frame in sequence if (points := _points(frame, modality))]
+    indexes = (range(len(sequence)) if limit is None
+               else _bounded_samples(range(len(sequence)), limit))
+    observed = [points for points in sequence.points[modality] if points]
     if not observed:
-        return tuple(sequence)
+        return tuple(sequence.frames[i] for i in indexes)
     sums: dict[str, list[float]] = {}
     for points in observed:
         for key, (x, y) in points.items():
@@ -137,17 +190,15 @@ def _centred(sequence: Sequence[FrameSample], modality: str) -> tuple[FrameSampl
         return replace(point, x=point.x - mx, y=point.y - my)
 
     frames = []
-    for frame in sequence:
+    for i in indexes:
+        frame, value = sequence.frames[i], sequence.values[modality][i]
         if modality == "prop_translation":
             frames.append(replace(
-                frame, prop=shift("prop", frame.prop) if _usable(frame.prop) else None))
-        elif modality == "pose":
-            frames.append(replace(frame, pose={
-                k: shift(k, p) for k, p in frame.pose.items() if _usable(p) and k in mean}))
+                frame, prop=shift("prop", value) if value is not None else None))
         else:
-            hands = _semantic_hands(frame.hands)
-            frames.append(replace(frame, hands={
-                k: shift(k, p) for k, p in hands.items() if _usable(p) and k in mean}))
+            # ``value[1]`` keeps the pose / semantic-hand order, unusable as None.
+            shifted = {k: shift(k, p) for k, p in value[1].items() if p is not None and k in mean}
+            frames.append(replace(frame, **{"pose" if modality == "pose" else "hands": shifted}))
     return tuple(frames)
 
 
@@ -185,46 +236,51 @@ def live_completion_window(
     return samples[start:]
 
 
-def _sequence_range(sequence: Sequence[FrameSample], modality: str) -> float:
+def _sequence_range(sequence: _PreparedSequence, modality: str) -> float:
     if len(sequence) < 2:
         return 0.0
-    first = sequence[0]
     return max(
         (
             error
-            for frame in sequence[1:]
-            if (error := _modality_error(first, frame, modality)) is not None
+            for index in range(1, len(sequence))
+            if (error := sequence.error(0, sequence, index, modality)) is not None
         ),
         default=0.0,
     )
 
 
 def _sequence_path_length(
-    sequence: Sequence[FrameSample], modality: str, *, bridge_gap_ms: int = 0
+    sequence: _PreparedSequence, modality: str, *, bridge_gap_ms: int = 0
 ) -> float:
     """Sum observed travel; across a short miss use only endpoint displacement."""
     total = 0.0
     previous: tuple[int, FrameSample] | None = None
-    for index, frame in enumerate(sequence):
-        if _modality_error(frame, frame, modality) is None:
+    for index, frame in enumerate(sequence.frames):
+        # Any usable point is exactly when a frame's self-error is defined.
+        if not sequence.points[modality][index]:
             continue
         if previous is not None:
             previous_index, previous_frame = previous
             if (index == previous_index + 1 or
                     (bridge_gap_ms > 0 and
                      frame.timestamp_ms - previous_frame.timestamp_ms <= bridge_gap_ms)):
-                error = _modality_error(previous_frame, frame, modality)
+                error = sequence.error(previous_index, sequence, index, modality)
                 if error is not None:
                     total += error
         previous = (index, frame)
     return total
 
 
-def _points(frame: FrameSample, modality: str) -> dict[str, tuple[float, float]]:
+def _sequence_motion(sequence: _PreparedSequence, modality: str) -> float:
+    """``sequence_motion`` over prepared frames (no per-call hand re-keying)."""
     if modality == "prop_translation":
-        return {"prop": (frame.prop.x, frame.prop.y)} if _usable(frame.prop) else {}
-    points = frame.pose if modality == "pose" else _semantic_hands(frame.hands)
-    return {key: (p.x, p.y) for key, p in points.items() if _usable(p)}
+        return sequence_motion(sequence.frames, modality)
+    tracks: dict[str, list] = {}
+    for value in sequence.values[modality]:
+        for key, point in value[1].items():
+            if point is not None and (modality != "pose" or key in MEANINGFUL_POSE_KEYS):
+                tracks.setdefault(key, []).append(point)
+    return landmark_tracks_motion(tracks)
 
 
 def _mean_points(
@@ -239,8 +295,8 @@ def _mean_points(
 
 
 def _displacement_match(
-    reference: Sequence[FrameSample],
-    candidate: Sequence[FrameSample],
+    reference: _PreparedSequence,
+    candidate: _PreparedSequence,
     modality: str,
 ) -> tuple[float | None, float | None, float]:
     """Start-anchored net travel compared with the reference's net travel.
@@ -250,8 +306,8 @@ def _displacement_match(
     negative = reversed); the error compares displacement vectors, so where
     the user starts in the frame does not matter, only what they did.
     """
-    observed = [points for frame in candidate if (points := _points(frame, modality))]
-    learned = [points for frame in reference if (points := _points(frame, modality))]
+    observed = [points for points in candidate.points[modality] if points]
+    learned = [points for points in reference.points[modality] if points]
     if len(observed) < 2 or len(learned) < 2:
         return None, None, 0.0
     # The start is the lead-in observation (averaging would mix in early
@@ -274,22 +330,21 @@ def _displacement_match(
 
 
 def _movement_start_index(
-    normalized: Sequence[FrameSample],
+    normalized: _PreparedSequence,
     moving_thresholds: Mapping[str, float],
 ) -> int | None:
     baselines = {
         modality: next(
-            (index for index, frame in enumerate(normalized)
-             if _modality_error(frame, frame, modality) is not None),
+            (index for index, points in enumerate(normalized.points[modality]) if points),
             None,
         )
         for modality in moving_thresholds
     }
-    for index, frame in enumerate(normalized[1:], start=1):
+    for index in range(1, len(normalized)):
         for modality, baseline in baselines.items():
             if baseline is None or baseline >= index:
                 continue
-            distance = _modality_error(normalized[baseline], frame, modality)
+            distance = normalized.error(baseline, normalized, index, modality)
             # Start evidence may appear before full meaningful motion. The
             # later sustained-displacement gate still rejects detector jitter.
             start_threshold = min(0.03, moving_thresholds[modality] * 0.5)
@@ -303,14 +358,16 @@ def _motion_unit(template: MovementTemplate) -> float | None:
     return float(value) if value is not None and value > 0 else None
 
 
-def _motion(template: MovementTemplate, sequence: Sequence[FrameSample], modality: str) -> float:
+def _motion(template: MovementTemplate, sequence: _PreparedSequence, modality: str) -> float:
     """The motion measure authoring used; legacy templates keep the old one."""
     if _motion_unit(template) is None:
         return _sequence_range(sequence, modality)
-    return sequence_motion(sequence, modality)
+    return _sequence_motion(sequence, modality)
 
 
-def _moving_thresholds(template: MovementTemplate) -> dict[str, float]:
+def _moving_thresholds(
+    template: MovementTemplate, reference: _PreparedSequence | None = None
+) -> dict[str, float]:
     """Learned moving modalities and their meaningful-motion thresholds.
 
     Uses the authoring thresholds and motion measure in the template's own
@@ -318,10 +375,12 @@ def _moving_thresholds(template: MovementTemplate) -> dict[str, float]:
     live. Legacy templates without ``motion_unit`` keep the original rule.
     """
     thresholds = motion_thresholds(_motion_unit(template))
+    if reference is None:
+        reference = _prepare(template.canonical_sequence, template.required_modalities)
     return {
         modality: thresholds[modality]
         for modality in template.required_modalities
-        if _motion(template, template.canonical_sequence, modality) >= thresholds[modality]
+        if _motion(template, reference, modality) >= thresholds[modality]
     }
 
 
@@ -336,7 +395,8 @@ def find_movement_start_index(
         use_pose_anchor="pose" in required,
         required_hand_sides=template.required_hand_sides,
     )
-    return _movement_start_index(normalized, _moving_thresholds(template))
+    thresholds = _moving_thresholds(template)
+    return _movement_start_index(_prepare(normalized, list(thresholds)), thresholds)
 
 
 def estimate_sequence_progress(
@@ -385,8 +445,7 @@ _MAX_ATTEMPT_RESTARTS = 4
 _TURN_SPAN = 3
 
 
-def _centroid(frame: FrameSample, modality: str) -> tuple[float, float] | None:
-    points = _points(frame, modality)
+def _centroid(points: Mapping[str, tuple[float, float]]) -> tuple[float, float] | None:
     if not points:
         return None
     return (sum(x for x, _ in points.values()) / len(points),
@@ -394,7 +453,7 @@ def _centroid(frame: FrameSample, modality: str) -> tuple[float, float] | None:
 
 
 def _next_attempt_boundary(
-    normalized: Sequence[FrameSample],
+    normalized: _PreparedSequence,
     start: int,
     thresholds: Mapping[str, float],
 ) -> int | None:
@@ -407,9 +466,10 @@ def _next_attempt_boundary(
         rest = 0.25 * min(0.03, threshold * 0.5)
         previous: tuple[float, float] | None = None
         moved = False
+        points = normalized.points[modality]
         for index in range(start + _TURN_SPAN, len(normalized)):
-            now = _centroid(normalized[index], modality)
-            before = _centroid(normalized[index - _TURN_SPAN], modality)
+            now = _centroid(points[index])
+            before = _centroid(points[index - _TURN_SPAN])
             if now is None or before is None:
                 previous = None
                 continue
@@ -442,25 +502,29 @@ def evaluate_completion_segment(
         return WAITING_FOR_MOVEMENT, None
 
     required = template.required_modalities
-    normalized = normalize_sequence(
+    # One prepared view of the reference and the bounded live sequence serves
+    # every restart and gate in this call, so per-frame preprocessing scales
+    # with the frame count rather than with helper calls.
+    reference = _prepare(template.canonical_sequence, required)
+    thresholds = _moving_thresholds(template, reference)
+    if not thresholds:
+        return _evaluate_dynamic_candidate(
+            template, samples, bounded, None, reference, 0, thresholds), None
+    normalized = _prepare(normalize_sequence(
         bounded,
         use_pose_anchor="pose" in required,
         required_hand_sides=template.required_hand_sides,
-    )
-    thresholds = _moving_thresholds(template)
-    if not thresholds:
-        return _evaluate_dynamic_candidate(
-            template, samples, bounded, normalized, 0, thresholds), None
+    ), list(thresholds))
     offset = 0
     best: tuple[str, int | None] = (WAITING_FOR_MOVEMENT, None)
     for _ in range(_MAX_ATTEMPT_RESTARTS + 1):
-        start = _movement_start_index(normalized[offset:], thresholds)
+        start = _movement_start_index(normalized.tail(offset), thresholds)
         if start is None:
             break
         start += offset
         status = _evaluate_dynamic_candidate(
-            template, samples, bounded, normalized, start, thresholds)
-        start_ms = normalized[start].timestamp_ms
+            template, samples, bounded, normalized, reference, start, thresholds)
+        start_ms = normalized.frames[start].timestamp_ms
         if status == MOVEMENT_COMPLETED:
             return status, start_ms
         if status == MOVEMENT_DETECTED or best[0] == WAITING_FOR_MOVEMENT:
@@ -478,13 +542,13 @@ def _evaluate_dynamic_candidate(
     template: MovementTemplate,
     samples: Sequence[FrameSample],
     bounded: Sequence[FrameSample],
-    normalized: Sequence[FrameSample],
+    normalized: _PreparedSequence | None,
+    reference: _PreparedSequence,
     movement_start: int,
     thresholds: Mapping[str, float],
 ) -> str:
     """Completion gates for one candidate attempt beginning at ``movement_start``."""
     required = template.required_modalities
-    reference = template.canonical_sequence
     moving_modalities = list(thresholds)
     if not moving_modalities:
         if template.rotation_trace is not None:
@@ -513,15 +577,26 @@ def _evaluate_dynamic_candidate(
         * widening / _MAX_SPREAD_WIDENING
     )
 
-    candidate = normalized[movement_start:]
-    if not candidate:
+    assert normalized is not None
+    candidate = normalized.tail(movement_start)
+    if not candidate.frames:
         return WAITING_FOR_MOVEMENT
-    candidate_start_ms = candidate[0].timestamp_ms
+    candidate_start_ms = candidate.frames[0].timestamp_ms
     source_candidate = tuple(
         frame for frame in samples if frame.timestamp_ms >= candidate_start_ms
     )
+    # Sustained motion is reused by the movement and sustained gates below.
+    motion_memo: dict[str, float] = {}
+
+    def candidate_motion(modality: str) -> float:
+        if modality not in motion_memo:
+            motion_memo[modality] = _sequence_motion(candidate, modality)
+        return motion_memo[modality]
+
+    legacy_motion = _motion_unit(template) is None
     movement_detected = any(
-        _motion(template, candidate, modality)
+        (_sequence_range(candidate, modality) if legacy_motion
+         else candidate_motion(modality))
         >= max(thresholds[modality], _motion(template, reference, modality) * 0.20)
         for modality in moving_modalities
     )
@@ -530,7 +605,7 @@ def _evaluate_dynamic_candidate(
     if len(candidate) < MIN_TRACKING_SAMPLES:
         return MOVEMENT_DETECTED
 
-    candidate_duration = candidate[-1].timestamp_ms - candidate[0].timestamp_ms
+    candidate_duration = candidate.frames[-1].timestamp_ms - candidate_start_ms
     if candidate_duration < _MIN_DYNAMIC_DURATION_MS:
         return MOVEMENT_DETECTED
 
@@ -545,23 +620,24 @@ def _evaluate_dynamic_candidate(
         expected_path = _sequence_path_length(reference, modality)
         observed_path = _sequence_path_length(candidate, modality, bridge_gap_ms=450)
         start_error = next(
-            (error for frame in candidate[:3]
-             if (error := _modality_error(reference[0], frame, modality)) is not None),
+            (error for j in range(min(3, len(candidate)))
+             if (error := reference.error(0, candidate, j, modality)) is not None),
             None,
         )
         progress, end_error, reference_travel = _displacement_match(
             reference, candidate, modality,
         )
         ratio = observed_path / expected_path if expected_path > 0 else 0.0
+        last = len(reference) - 1
         recent = next(
-            (frame for frame in reversed(candidate)
-             if _modality_error(reference[-1], frame, modality) is not None),
+            (j for j in reversed(range(len(candidate)))
+             if reference.error(last, candidate, j, modality) is not None),
             None,
         )
         phase_errors = [
-            (error, -index) for index, phase in enumerate(reference)
+            (error, -index) for index in range(len(reference))
             if recent is not None
-            and (error := _modality_error(phase, recent, modality)) is not None
+            and (error := reference.error(index, candidate, recent, modality)) is not None
         ]
         phase_progress = (
             -min(phase_errors)[1] / max(1, len(reference) - 1)
@@ -569,9 +645,9 @@ def _evaluate_dynamic_candidate(
         )
         # Detector jitter accumulates path length but not sustained
         # displacement; a stationary attempt cannot satisfy this.
-        sustained = sequence_motion(candidate, modality) >= max(
+        sustained = candidate_motion(modality) >= max(
             0.6 * thresholds[modality],
-            _MIN_SUSTAINED_MOTION_RATIO * sequence_motion(reference, modality),
+            _MIN_SUSTAINED_MOTION_RATIO * _sequence_motion(reference, modality),
         )
         # Completion asks "same movement?", not "same spot/size?": identity
         # is judged on start-anchored net travel, while absolute start/end
@@ -583,8 +659,7 @@ def _evaluate_dynamic_candidate(
             centred_reference = _centred(reference, modality)
             # Centre on the full candidate, then stride; path indexes below
             # refer to this exact bounded sequence.
-            centred_candidate = _bounded_samples(
-                _centred(candidate, modality), _LIVE_ALIGNMENT_MAX_SAMPLES)
+            centred_candidate = _centred(candidate, modality, _LIVE_ALIGNMENT_MAX_SAMPLES)
             alignment = _dtw(centred_reference, centred_candidate, (modality,))
             errors = [
                 error for i, j in alignment
