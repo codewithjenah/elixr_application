@@ -60,12 +60,13 @@ from assessment.custom_movement.completion import (
     MOVEMENT_COMPLETED as CUSTOM_ASSESSMENT_COMPLETED,
     MOVEMENT_DETECTED as CUSTOM_ASSESSMENT_MOVING,
     WAITING_FOR_MOVEMENT as CUSTOM_ASSESSMENT_WAITING,
-    apply_validated_attempt_floor as apply_custom_validated_attempt_floor,
     evaluate_completion as evaluate_custom_assessment_completion,
     evaluate_completion_segment as evaluate_custom_assessment_segment,
     estimate_sequence_progress as estimate_custom_sequence_progress,
     find_movement_start_index as find_custom_assessment_start_index,
     live_completion_window as custom_live_completion_window,
+    validated_attempt_score_percent as custom_validated_score_percent,
+    validated_attempt_total as custom_validated_total,
 )
 from assessment.custom_movement.template_engine import (
     SequenceComparison as CustomSequenceComparison,
@@ -1619,8 +1620,13 @@ class VisionSession:
                     code = result.validation.codes[0].value
                     raise ValueError(code)
                 # Completion validated the attempt (moving, same direction,
-                # prop travelled); similarity only grades above the floor.
-                total = apply_custom_validated_attempt_floor(result.total)
+                # prop travelled): 70% base, raw similarity fills 70..100.
+                # ``total``/level carry the same grade on the 0..12 scale for
+                # classroom persistence; ``raw_total`` and components stay
+                # the unmodified evidence-based rubric.
+                raw_total = result.total
+                score_percent = custom_validated_score_percent(raw_total)
+                total = custom_validated_total(score_percent)
                 result = replace(
                     result, total=total, performance_level=custom_performance_level(total),
                 )
@@ -1651,7 +1657,11 @@ class VisionSession:
             payload = result.to_dict()
             payload["movement_completed"] = completed
             payload["max_total"] = 12
-            payload["score_percent"] = round(result.total * 100 / 12, 1)
+            if completed:
+                payload["raw_total"] = raw_total
+                payload["score_percent"] = score_percent
+            else:
+                payload["score_percent"] = round(result.total * 100 / 12, 1)
             payload["assessment_outcome"] = (
                 "competent" if result.total >= 7 else "needs_improvement"
             )

@@ -891,12 +891,13 @@ def test_full_low_quality_sequence_completes_with_the_validated_floor():
     session._custom_assessment_progress = MOVEMENT_COMPLETED
     assert session.stop_custom_capture()[:2] == (True, None)
     result = session.finish_custom_assessment()
-    # Low similarity, but completion validated it: beginner floor (>= 70%),
-    # while component scores still show the weak prop control.
-    assert compare_sequence(template, jittered_slow, assessment=True).total < 7
-    assert result["total"] == 9
-    assert result["score_percent"] >= 70
-    assert result["score_percent"] == round(result["total"] * 100 / 12, 1)
+    # Low similarity, but completion validated it: 70% base plus the raw
+    # quality, while component scores still show the weak prop control.
+    raw = compare_sequence(template, jittered_slow, assessment=True)
+    assert raw.total < 7
+    assert result["raw_total"] == raw.total
+    assert result["score_percent"] == round(70 + 30 * raw.total / 12, 1)
+    assert result["component_scores"] == raw.component_scores
     assert min(v for v in result["component_scores"].values() if v is not None) <= 1
     session.close()
 

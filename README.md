@@ -837,7 +837,12 @@ consistent rotation observations. During assessment, the observed movement
 pattern (body, hands, timing) carries 75% of the base score and prop path and
 control carry 25%. An observed matching projected turn can add one point within
 the `0..12` rubric; missing or ambiguous rotation does not lower those
-components or prevent assessment. Release, airborne, apex, and catch are
+components or prevent assessment. A validated completed attempt reports
+`score_percent = 70 + 30 × raw_total / 12` (70..100) with the unmodified rubric
+in `raw_total` and `component_scores`; its `total`/`performance_level` are the
+floored 0..12 equivalent of that percentage for classroom persistence.
+Incomplete attempts get no completion base: `total` is capped at 6 and
+`score_percent = total × 100 / 12`. Release, airborne, apex, and catch are
 inferred conservatively from existing prop/hand tracks when visible. Complete
 prop loss still follows the required translation coverage and gap limits. The
 marker runtime and optional future learned detector are documented

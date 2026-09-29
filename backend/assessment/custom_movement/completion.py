@@ -68,9 +68,9 @@ _MAX_SPREAD_WIDENING = 0.75
 # keep a rough forward projection onto the learned net travel.
 _MIN_PROP_PATH_RATIO = 0.35
 _MIN_PROP_PROGRESS = 0.25
-# Smallest 0..12 rubric total at or above 70% (9/12 = 75%). Applied only to
-# attempts that completion validated; the rubric stays an integer total.
-VALIDATED_ATTEMPT_MIN_TOTAL = 9
+# Beginner-friendly base for attempts that completion validated; the raw
+# rubric quality fills the remaining 30 points (0/12 -> 70%, 12/12 -> 100%).
+VALIDATED_ATTEMPT_BASE_PERCENT = 70.0
 
 
 @dataclass(frozen=True)
@@ -719,15 +719,26 @@ def _prop_follows(item: DynamicMotionEvidence) -> bool:
     return True
 
 
-def apply_validated_attempt_floor(total: int) -> int:
-    """Beginner-friendly minimum for an attempt completion already validated.
+def validated_attempt_score_percent(raw_total: int) -> float:
+    """User-facing 70..100 score for an attempt completion already validated.
 
     Call only after ``evaluate_completion`` returned ``MOVEMENT_COMPLETED`` and
     the final comparison validated: completion is what rejects stationary,
-    reversed, prop-less, and unrelated movement. Similarity still orders
-    scores above the floor.
+    reversed, prop-less, and unrelated movement. The raw 0..12 rubric total
+    is never altered; it linearly fills the range above the completion base.
     """
-    return max(total, VALIDATED_ATTEMPT_MIN_TOTAL)
+    fraction = min(1.0, max(0.0, raw_total / 12))
+    return round(VALIDATED_ATTEMPT_BASE_PERCENT
+                 + (100.0 - VALIDATED_ATTEMPT_BASE_PERCENT) * fraction, 1)
+
+
+def validated_attempt_total(score_percent: float) -> int:
+    """0..12 rubric-scale equivalent of a validated score, never overstated.
+
+    Classroom persistence stores a 0..12 total whose performance level must
+    match it, so the saved grade must agree with the displayed percentage.
+    """
+    return min(12, math.floor(score_percent * 12 / 100 + 1e-9))
 
 
 def _evaluate_static_completion(
