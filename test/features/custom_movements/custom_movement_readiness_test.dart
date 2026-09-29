@@ -15,6 +15,8 @@ import 'package:elixr_application/data/repositories/custom_movement_repository.d
 import 'package:elixr_application/features/custom_movements/custom_movement_practice_screen.dart';
 import 'package:elixr_application/features/practice/practice_game_widgets.dart';
 import 'package:elixr_application/features/practice/widgets/training_action_area.dart';
+import 'package:audioplayers/audioplayers.dart';
+import 'package:elixr_application/services/audio_player_handle.dart';
 import 'package:elixr_application/services/session_service.dart';
 import 'package:elixr_application/services/websocket_service.dart';
 import 'package:elixr_application/services/settings_service.dart';
@@ -433,10 +435,80 @@ class _EvidencePreferences extends SessionService {
 /// A JPEG-sized payload within the private evidence contract (1–256 KiB).
 final _evidenceJpeg = Uint8List.fromList(List<int>.filled(2048, 7));
 
+/// Records native audio commands without opening an audio device.
+class _FakeAudioPlayer implements AudioPlayerHandle {
+  final _completions = StreamController<void>.broadcast();
+  final operations = <String>[];
+  int disposeCount = 0;
+
+  int count(String operation) => operations.where((o) => o == operation).length;
+
+  @override
+  Stream<void> get onPlayerComplete => _completions.stream;
+
+  @override
+  Future<void> setReleaseMode(ReleaseMode mode) async {}
+
+  @override
+  Future<void> setVolume(double volume) async =>
+      operations.add('volume:$volume');
+
+  @override
+  Future<void> setSourceAsset(String assetPath) async =>
+      operations.add('source:$assetPath');
+
+  @override
+  Future<void> playAsset(String assetPath) async =>
+      operations.add('play:$assetPath');
+
+  @override
+  Future<void> playAssetAtPosition(String assetPath, {Duration? position}) =>
+      playAsset(assetPath);
+
+  @override
+  Future<void> playFile(String filePath) async =>
+      operations.add('play:$filePath');
+
+  @override
+  Future<void> pause() async {}
+
+  @override
+  Future<void> resume() async {}
+
+  @override
+  Future<void> stop() async => operations.add('stop');
+
+  @override
+  Future<void> dispose() async {
+    disposeCount++;
+    await _completions.close();
+  }
+}
+
+/// Audio service disposal cancels stream subscriptions, which needs real
+/// async turns in addition to the fake-clock pumps.
+Future<void> _settleAudioTeardown(WidgetTester tester) async {
+  await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+  await tester.pump();
+}
+
+const _countdownSfx = 'play:music/countdown.mp3';
+const _selectedTrack = 'play:music/A Sky Full of Stars.mp3';
+
 class _TestSettings extends SettingsService {
-  _TestSettings({this.deviceId});
+  _TestSettings({this.deviceId, this.sound = true});
 
   String? deviceId;
+  final bool sound;
+
+  @override
+  bool get soundEnabled => sound;
+
+  @override
+  double get musicVolume => 0.6;
+
+  @override
+  String? get selectedMusicTrackId => 'sky_full_of_stars';
 
   @override
   bool get cameraMirrored => true;
@@ -528,13 +600,18 @@ Future<void> _pumpPractice(
   ClassroomAssignmentRepository? classroomRepository,
   int? classroomAttemptsRemaining,
   DateTime Function() now = DateTime.now,
+  SettingsService? settings,
+  AudioPlayerHandle? musicPlayer,
+  AudioPlayerHandle? sfxPlayer,
 }) async {
   _useDesktopSurface(tester);
   final movement = _movement();
   await tester.pumpWidget(
     _withSettings(
-      _TestSettings(),
+      settings ?? _TestSettings(),
       CustomMovementPracticeScreen(
+        musicPlayer: musicPlayer,
+        sfxPlayer: sfxPlayer,
         movement: movement,
         revision: _revision(movement),
         repository: repository ?? _UnusedRepository(),
@@ -1839,6 +1916,138 @@ void main() {
     );
     await tester.pumpWidget(const SizedBox());
     await socket.closeTestStreams();
+  });
+
+  group('practice audio', () {
+    testWidgets(
+      'countdown SFX plays once, music starts only when recording, and Practice Again repeats both',
+      (tester) async {
+        final socket = _CustomSocket();
+        final music = _FakeAudioPlayer();
+        final sfx = _FakeAudioPlayer();
+        await _pumpPractice(
+          tester,
+          socket,
+          repository: _RecordingRepository(),
+          musicPlayer: music,
+          sfxPlayer: sfx,
+        );
+        expect(sfx.operations, contains('source:music/countdown.mp3'));
+        expect(sfx.count(_countdownSfx), 0);
+
+        socket.emitReady();
+        await tester.pump();
+        expect(sfx.count(_countdownSfx), 1);
+        expect(sfx.operations, contains('volume:0.6'));
+        // Music never masks the countdown or plays during setup.
+        expect(music.count(_selectedTrack), 0);
+
+        for (var second = 0; second < 3; second++) {
+          await tester.pump(const Duration(seconds: 1));
+        }
+        await tester.pump();
+        expect(find.text('Completes automatically'), findsOne);
+        expect(sfx.count(_countdownSfx), 1);
+        expect(music.count(_selectedTrack), 1);
+
+        final stopsBeforeFinish = music.count('stop');
+        await _completeMovement(tester, socket);
+        expect(music.count('stop'), greaterThan(stopsBeforeFinish));
+        expect(music.operations.last, 'stop');
+
+        await tester.tap(
+          find.byKey(const ValueKey('custom-result-practice-again')),
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+        expect(music.count(_selectedTrack), 1);
+        await _autoStartThroughCountdown(tester, socket);
+        expect(sfx.count(_countdownSfx), 2);
+        expect(music.count(_selectedTrack), 2);
+
+        await tester.pumpWidget(const SizedBox());
+        await _settleAudioTeardown(tester);
+        expect(music.operations.last, 'stop');
+        expect(music.disposeCount, 1);
+        expect(sfx.disposeCount, 1);
+        await socket.closeTestStreams();
+      },
+    );
+
+    testWidgets('sound disabled mutes countdown and plays no music', (
+      tester,
+    ) async {
+      final socket = _CustomSocket();
+      final music = _FakeAudioPlayer();
+      final sfx = _FakeAudioPlayer();
+      await _pumpPractice(
+        tester,
+        socket,
+        settings: _TestSettings(sound: false),
+        musicPlayer: music,
+        sfxPlayer: sfx,
+      );
+      await _autoStartThroughCountdown(tester, socket);
+      expect(find.text('Completes automatically'), findsOne);
+      expect(sfx.operations, contains('volume:0.0'));
+      expect(sfx.operations, isNot(contains('volume:0.6')));
+      expect(music.count(_selectedTrack), 0);
+      await tester.pumpWidget(const SizedBox());
+      await socket.closeTestStreams();
+    });
+
+    testWidgets(
+      'failed capture start stops audio and retry starts a fresh attempt',
+      (tester) async {
+        final socket = _CustomSocket()..rejectStartCustomCapture = true;
+        final music = _FakeAudioPlayer();
+        final sfx = _FakeAudioPlayer();
+        await _pumpPractice(tester, socket, musicPlayer: music, sfxPlayer: sfx);
+        await _autoStartThroughCountdown(tester, socket);
+        expect(find.text('Practice Again'), findsOne);
+        expect(music.count(_selectedTrack), 0);
+        expect(sfx.operations.last, 'stop');
+
+        socket.rejectStartCustomCapture = false;
+        await tester.tap(find.text('Practice Again'));
+        await tester.pump();
+        await _autoStartThroughCountdown(tester, socket);
+        expect(sfx.count(_countdownSfx), 2);
+        expect(music.count(_selectedTrack), 1);
+        await tester.pumpWidget(const SizedBox());
+        await socket.closeTestStreams();
+      },
+    );
+
+    testWidgets('leaving mid-recording stops and disposes audio once', (
+      tester,
+    ) async {
+      final socket = _CustomSocket();
+      final music = _FakeAudioPlayer();
+      final sfx = _FakeAudioPlayer();
+      var exits = 0;
+      await _pumpPractice(
+        tester,
+        socket,
+        onExit: () => exits++,
+        musicPlayer: music,
+        sfxPlayer: sfx,
+      );
+      await _autoStartThroughCountdown(tester, socket);
+      expect(music.count(_selectedTrack), 1);
+
+      await tester.tap(find.byKey(const ValueKey('training-header-back')));
+      await tester.pump();
+      expect(exits, 1);
+      expect(music.operations.last, 'stop');
+      expect(sfx.operations.last, 'stop');
+
+      await tester.pumpWidget(const SizedBox());
+      await _settleAudioTeardown(tester);
+      expect(music.disposeCount, 1);
+      expect(sfx.disposeCount, 1);
+      await socket.closeTestStreams();
+    });
   });
 
   testWidgets('Back still exits after a failed assessment', (tester) async {

@@ -16,6 +16,10 @@ import '../../data/models/ws_protocol.dart';
 import '../../data/repositories/custom_movement_repository.dart';
 import '../../data/repositories/classroom_assignment_repository.dart';
 import '../../data/repositories/session_evidence_repository.dart';
+import '../../services/app_background_music_service.dart';
+import '../../services/audio_player_handle.dart';
+import '../../services/practice_music_service.dart';
+import '../../services/practice_sfx_service.dart';
 import '../../services/websocket_service.dart';
 import '../../services/session_service.dart';
 import '../../services/settings_service.dart';
@@ -46,6 +50,8 @@ class CustomMovementPracticeScreen extends StatefulWidget {
     this.sessionService,
     this.classroomAttemptsRemaining,
     @visibleForTesting this.now = DateTime.now,
+    @visibleForTesting this.musicPlayer,
+    @visibleForTesting this.sfxPlayer,
   });
 
   final CustomMovement movement;
@@ -71,6 +77,11 @@ class CustomMovementPracticeScreen extends StatefulWidget {
 
   /// Wall clock for the recording deadline; injectable so tests can expire it.
   final DateTime Function() now;
+
+  /// Native player overrides for the owned practice audio services; tests
+  /// inject fakes so no audio device is opened.
+  final AudioPlayerHandle? musicPlayer;
+  final AudioPlayerHandle? sfxPlayer;
 
   @override
   State<CustomMovementPracticeScreen> createState() =>
@@ -162,13 +173,43 @@ class _CustomMovementPracticeScreenState
   Timer? _recordingTimer;
   int _remainingSeconds = _captureDuration.inSeconds;
 
+  /// Same practice audio ownership as official practice: one music channel
+  /// and one SFX channel for the lifetime of this screen.
+  late final PracticeMusicService _music;
+  bool _musicInitialized = false;
+  late final PracticeSfxService _sfx = PracticeSfxService(
+    player: widget.sfxPlayer,
+  );
+
   @override
   void initState() {
     super.initState();
     _ownsSocket = widget.webSocket == null;
     _socket = widget.webSocket ?? WebSocketService();
     _classroomAttemptsRemaining = widget.classroomAttemptsRemaining;
+    unawaited(_sfx.preload());
     unawaited(_prepare());
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_musicInitialized) return;
+    _musicInitialized = true;
+    final settings = context.read<SettingsService>();
+    _music = PracticeMusicService(
+      settings: settings,
+      appBackgroundMusic: context.read<AppBackgroundMusicService?>(),
+      player: widget.musicPlayer,
+    );
+    _sfx.bindSettings(settings);
+  }
+
+  /// Ends any practice music and one-shot SFX for the current attempt and
+  /// hands audio back to app background music.
+  void _stopPracticeAudio() {
+    if (_musicInitialized) unawaited(_music.stop());
+    unawaited(_sfx.stop());
   }
 
   Future<void> _prepare() async {
@@ -223,6 +264,9 @@ class _CustomMovementPracticeScreenState
 
   Future<void> _prepareSession() async {
     final settings = context.read<SettingsService>();
+    // Setup and readiness never play practice music; a retry or camera
+    // switch must not carry the previous attempt's music forward.
+    if (_musicInitialized) unawaited(_music.stop());
     if (mounted) {
       setState(() {
         _phase = _CustomPracticePhase.preparing;
@@ -308,6 +352,7 @@ class _CustomMovementPracticeScreenState
 
   Future<void> _start() async {
     if (_busy || _phase != _CustomPracticePhase.setupChecking) return;
+    final settings = context.read<SettingsService>();
     setState(() {
       _busy = true;
       _phase = _CustomPracticePhase.countdown;
@@ -326,6 +371,13 @@ class _CustomMovementPracticeScreenState
         return;
       }
       _requireAccepted(confirm);
+      // The countdown SFX accompanies the existing visual 3-2-1 below,
+      // exactly as official practice plays it on entering countdown.
+      unawaited(
+        _sfx.playCountdown(
+          volume: settings.soundEnabled ? settings.musicVolume : 0.0,
+        ),
+      );
       for (var value = 3; value >= 1; value--) {
         if (!mounted) return;
         setState(() => _countdown = value);
@@ -350,8 +402,19 @@ class _CustomMovementPracticeScreenState
           const Duration(seconds: 1),
           (_) => _updateRecordingTime(),
         );
+        // Music starts only once the accepted attempt is recording.
+        if (!_leaving) {
+          unawaited(_sfx.stop());
+          unawaited(
+            _music.start(
+              selectedTrackId: settings.selectedMusicTrackId,
+              customTracks: settings.customMusicTracks,
+            ),
+          );
+        }
       }
     } catch (error) {
+      _stopPracticeAudio();
       // Activation may already have succeeded before capture startup fails.
       // Release the backend session before showing a failed state with no
       // active-session controls.
@@ -382,6 +445,7 @@ class _CustomMovementPracticeScreenState
     if (_busy || _leaving || _phase != _CustomPracticePhase.recording) return;
     _recordingTimer?.cancel();
     _recordingTimer = null;
+    _stopPracticeAudio();
     ({
       CustomAssessmentSnapshot assessment,
       Uint8List? evidence,
@@ -856,6 +920,7 @@ class _CustomMovementPracticeScreenState
     _recordingTimer?.cancel();
     _recordingTimer = null;
     _clearLiveCue();
+    _stopPracticeAudio();
     try {
       await _releaseForExit().timeout(_exitCleanupTimeout);
     } on TimeoutException {
@@ -892,6 +957,9 @@ class _CustomMovementPracticeScreenState
     _presentation.dispose();
     _readinessFeedback.dispose();
     _assessmentProgress.dispose();
+    // Disposal stops playback and releases the background-music lease.
+    if (_musicInitialized) unawaited(_music.dispose());
+    unawaited(_sfx.dispose());
     if (_ownsSocket) _socket.dispose();
     super.dispose();
   }
