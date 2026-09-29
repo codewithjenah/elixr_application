@@ -839,8 +839,13 @@ control carry 25%. An observed matching projected turn can add one point within
 the `0..12` rubric; missing or ambiguous rotation does not lower those
 components or prevent assessment. A validated completed attempt reports
 `score_percent = 70 + 30 × raw_total / 12` (70..100) with the unmodified rubric
-in `raw_total` and `component_scores`; its `total`/`performance_level` are the
-floored 0..12 equivalent of that percentage for classroom persistence.
+in `raw_total` and `component_scores` as diagnostic evidence. Its user-facing
+`total` adds completion credit to the strict raw total (`raw_total` 0–2 → 8,
+3–5 → 9, 6–8 → 10, 9–11 → 11, 12 → 12); the result dialog shows it as
+`Score X / 12` and classroom persistence stores it with the matching
+`performance_level`. Its `component_scores` are likewise lifted to at least
+2/3 (higher strict scores kept, null stays "Not assessed"); the strict values
+remain in `raw_component_scores` and drive the coaching feedback.
 Incomplete attempts get no completion base: `total` is capped at 6 and
 `score_percent = total × 100 / 12`. Release, airborne, apex, and catch are
 inferred conservatively from existing prop/hand tracks when visible. Complete

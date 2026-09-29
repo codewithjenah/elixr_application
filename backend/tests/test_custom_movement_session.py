@@ -1134,8 +1134,9 @@ def test_full_low_quality_sequence_completes_with_the_validated_floor():
     assert raw.total < 7
     assert result["raw_total"] == raw.total
     assert result["score_percent"] == round(70 + 30 * raw.total / 12, 1)
-    assert result["component_scores"] == raw.component_scores
-    assert min(v for v in result["component_scores"].values() if v is not None) <= 1
+    assert result["raw_component_scores"] == raw.component_scores
+    assert min(v for v in result["raw_component_scores"].values() if v is not None) <= 1
+    assert min(v for v in result["component_scores"].values() if v is not None) >= 2
     session.close()
 
 
@@ -1502,7 +1503,7 @@ def test_low_control_assessment_feedback_coaches_smooth_prop_motion():
 
     result = session.finish_custom_assessment()
 
-    assert result["component_scores"]["Control/stability"] <= 1
+    assert result["raw_component_scores"]["Control/stability"] <= 1
     assert (
         "Keep the prop movement steady and smooth through each transition."
         in result["feedback"]

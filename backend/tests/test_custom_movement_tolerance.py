@@ -720,8 +720,10 @@ def _finish(template, attempt):
 
 
 @pytest.mark.parametrize(("raw", "percent", "total", "level"), (
-    (0, 70.0, 8, "competent"), (4, 80.0, 9, "competent"), (6, 85.0, 10, "proficient"),
-    (8, 90.0, 10, "proficient"), (9, 92.5, 11, "proficient"), (10, 95.0, 11, "proficient"),
+    (0, 70.0, 8, "competent"), (1, 72.5, 8, "competent"), (2, 75.0, 8, "competent"),
+    (3, 77.5, 9, "competent"), (4, 80.0, 9, "competent"), (5, 82.5, 9, "competent"),
+    (6, 85.0, 10, "proficient"), (8, 90.0, 10, "proficient"),
+    (9, 92.5, 11, "proficient"), (10, 95.0, 11, "proficient"),
     (11, 97.5, 11, "proficient"), (12, 100.0, 12, "mastered"),
 ))
 def test_validated_attempt_score_mapping(raw, percent, total, level):
@@ -730,21 +732,62 @@ def test_validated_attempt_score_mapping(raw, percent, total, level):
     )
 
     assert validated_attempt_score_percent(raw) == percent
-    assert validated_attempt_total(percent) == total
+    assert validated_attempt_total(raw) == total
     assert websocket_api.custom_performance_level(total) == level
 
 
+def test_validated_attempt_total_is_monotonic_and_bounded():
+    from assessment.custom_movement.completion import validated_attempt_total
+
+    totals = [validated_attempt_total(raw) for raw in range(13)]
+    assert totals == sorted(totals)
+    assert (min(totals), max(totals)) == (8, 12)
+    assert validated_attempt_total(-1) == 8 and validated_attempt_total(13) == 12
+
+
 def _assert_coherent_completed(payload, raw):
+    from assessment.custom_movement.completion import validated_attempt_total
+
     assert payload["movement_completed"] is True
     # Raw rubric and components are the unmodified evidence.
     assert payload["raw_total"] == raw.total
-    assert payload["component_scores"] == raw.component_scores
+    assert payload["raw_component_scores"] == raw.component_scores
+    # Displayed components: strict score, lifted to at least 2/3.
+    assert payload["component_scores"] == {
+        k: None if v is None else max(2, v) for k, v in raw.component_scores.items()}
     assert payload["score_percent"] == round(70 + 30 * raw.total / 12, 1)
-    # Persisted grade agrees with the displayed percentage, never above it.
-    assert payload["total"] * 100 / 12 <= payload["score_percent"]
+    # User-facing total is the completion-credited band of the raw total.
+    assert payload["total"] == validated_attempt_total(raw.total) >= 8
     assert payload["performance_level"] == websocket_api.custom_performance_level(
         payload["total"])
     assert payload["assessment_outcome"] == "competent"
+
+
+def test_weak_validated_attempt_regression_scores_eight(arc_template, monkeypatch):
+    # Field case: completed, 75%, strict raw 2 with components 0,0,0,1,1.
+    weak = _arc(start=(0.12, 0.09), amp=0.07, noise=0.006)
+    raw = compare_sequence(arc_template, weak, assessment=True)
+    components = {"Body technique": 0, "Hand technique": 0, "Prop path": 0,
+                  "Timing": 1, "Control/stability": 1}
+    forced = replace(raw, total=2, component_scores=components)
+    monkeypatch.setattr(websocket_api, "compare_custom_movement_sequence",
+                        lambda *args, **kwargs: forced)
+    session = _assessment_session(arc_template, weak, MOVEMENT_COMPLETED)
+    try:
+        payload = session.finish_custom_assessment()
+    finally:
+        session.close()
+    assert payload["movement_completed"] is True
+    assert (payload["raw_total"], payload["score_percent"]) == (2, 75.0)
+    assert (payload["total"], payload["performance_level"]) == (8, "competent")
+    assert payload["raw_component_scores"] == components
+    assert payload["component_scores"] == {
+        "Body technique": 2, "Hand technique": 2, "Prop path": 2,
+        "Timing": 2, "Control/stability": 2}
+    # A strong strict component is kept; "Not assessed" stays None.
+    from assessment.custom_movement.completion import validated_component_scores
+    assert validated_component_scores({"Timing": 3, "Prop path": None}) == {
+        "Timing": 3, "Prop path": None}
 
 
 def test_valid_weak_attempt_scores_at_least_seventy_percent(arc_template):
@@ -773,6 +816,9 @@ def test_completed_scores_order_by_execution_quality(arc_template):
     assert (payloads["weak"]["score_percent"] < payloads["medium"]["score_percent"]
             < payloads["strong"]["score_percent"] <= 100)
     assert payloads["weak"]["raw_total"] < payloads["strong"]["raw_total"]
+    assert (8 <= payloads["weak"]["total"] <= payloads["medium"]["total"]
+            <= payloads["strong"]["total"] == 12)
+    assert payloads["weak"]["total"] < payloads["strong"]["total"]
 
 
 def test_reference_quality_completed_attempt_reaches_one_hundred_percent(arc_template):
@@ -807,6 +853,7 @@ def test_invalid_attempts_do_not_complete_or_earn_the_floor(arc_template, attemp
     # No completion base: incomplete percentage is the capped rubric (<= 50%).
     assert payload["score_percent"] == round(payload["total"] * 100 / 12, 1) <= 50
     assert "raw_total" not in payload
+    assert "raw_component_scores" not in payload
     assert payload["assessment_outcome"] == "needs_improvement"
 
 

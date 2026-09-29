@@ -26,7 +26,6 @@ class CustomAssessmentSnapshot {
     required this.feedback,
     this.total,
     this.rawTotal,
-    this.rawTotalMalformed = false,
     this.maxTotal,
     this.performanceLevel,
   });
@@ -34,17 +33,14 @@ class CustomAssessmentSnapshot {
   /// User-facing overall percentage (70..100 for validated completions).
   final double scorePercent;
 
-  /// Persistence total (0..12). For validated completions this is the
-  /// percentage-derived grade, not the raw rubric; classroom persistence and
-  /// [performanceLevel] use it.
+  /// User-facing 0..12 assessment score. For validated completions this
+  /// includes completion credit (8..12); it is what the dialog shows and
+  /// what classroom persistence and [performanceLevel] use.
   final int? total;
 
-  /// Backend-authoritative raw rubric total; sent only for validated
-  /// completions (`raw_total`).
+  /// Strict similarity rubric (`raw_total`), diagnostic evidence only; sent
+  /// only for validated completions and never shown as the final grade.
   final int? rawTotal;
-
-  /// `raw_total` was sent but unusable, so [total] must not stand in for it.
-  final bool rawTotalMalformed;
   final int? maxTotal;
   final String? performanceLevel;
 
@@ -53,6 +49,16 @@ class CustomAssessmentSnapshot {
   final List<String> feedback;
 
   static const componentMax = 3;
+
+  /// Qualitative label for a 0..3 component, so the breakdown is not read
+  /// as addends of the 0..12 score.
+  static String componentLabel(int? score) => switch (score) {
+    null => 'Not assessed',
+    >= componentMax => 'Excellent',
+    2 => 'Good',
+    1 => 'Fair',
+    _ => 'Needs work',
+  };
 
   static CustomAssessmentSnapshot? tryFrom(Map<String, dynamic> raw) {
     final percent = raw['score_percent'];
@@ -91,7 +97,6 @@ class CustomAssessmentSnapshot {
       scorePercent: percent.toDouble(),
       total: total is num ? total.toInt() : null,
       rawTotal: validRawTotal,
-      rawTotalMalformed: raw.containsKey('raw_total') && validRawTotal == null,
       maxTotal: max,
       performanceLevel: level is String && level.trim().isNotEmpty
           ? level.trim()
@@ -107,15 +112,13 @@ class CustomAssessmentSnapshot {
 
   int get roundedPercent => scorePercent.round();
 
-  /// Rubric total to display: `raw_total` when sent, else (legacy and
-  /// incomplete payloads, where `total` is the rubric) `total`. Null when
-  /// `raw_total` is malformed or the total is out of range.
-  int? get rubricTotal {
-    if (rawTotal != null) return rawTotal;
-    final fallback = total;
+  /// The 0..12 score to display: [total], or null when missing or out of
+  /// range. Never [rawTotal].
+  int? get scoreTotal {
+    final value = total;
     final max = maxTotal;
-    if (rawTotalMalformed || fallback == null || max == null) return null;
-    return fallback >= 0 && fallback <= max ? fallback : null;
+    if (value == null || max == null) return null;
+    return value >= 0 && value <= max ? value : null;
   }
 
   /// Numeric component scores for persistence.
@@ -484,9 +487,9 @@ class _ScoreCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // The large percentage and this 0..12 rubric are different measures;
-    // the percentage-derived persistence total is never shown as the rubric.
-    final rubric = assessment.rubricTotal;
+    // The user-facing 0..12 score; component rows below are strict
+    // diagnostic evidence and need not sum to it.
+    final score = assessment.scoreTotal;
     final maxTotal = assessment.maxTotal;
     final level = assessment.performanceLevelLabel;
     return Container(
@@ -512,8 +515,8 @@ class _ScoreCard extends StatelessWidget {
                   spacing: AppSpacing.sm,
                   runSpacing: 4,
                   children: [
-                    if (rubric != null && maxTotal != null)
-                      _Chip(label: 'Rubric $rubric / $maxTotal'),
+                    if (score != null && maxTotal != null)
+                      _Chip(label: 'Score $score / $maxTotal'),
                     if (level != null) _Chip(label: level),
                     _Chip(label: duration),
                   ],
@@ -523,7 +526,7 @@ class _ScoreCard extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.sm),
           Text(
-            'Custom Score',
+            'Performance breakdown',
             style: AppTheme.caption.copyWith(
               color: context.elixTextSecondary,
               fontWeight: FontWeight.w700,
@@ -544,9 +547,7 @@ class _ScoreCard extends StatelessWidget {
                     ),
                   ),
                   Text(
-                    entry.value == null
-                        ? 'Not assessed'
-                        : '${entry.value} / ${CustomAssessmentSnapshot.componentMax}',
+                    CustomAssessmentSnapshot.componentLabel(entry.value),
                     style: AppTheme.caption.copyWith(
                       fontWeight: FontWeight.w700,
                       color: context.elixTextPrimary,

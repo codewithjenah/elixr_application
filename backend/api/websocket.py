@@ -68,6 +68,7 @@ from assessment.custom_movement.completion import (
     live_completion_window as custom_live_completion_window,
     validated_attempt_score_percent as custom_validated_score_percent,
     validated_attempt_total as custom_validated_total,
+    validated_component_scores as custom_validated_components,
 )
 from assessment.custom_movement.template_engine import (
     SequenceComparison as CustomSequenceComparison,
@@ -76,6 +77,8 @@ from assessment.custom_movement.template_engine import (
 
 # An attempt that never satisfied completion stays below "competent" (7).
 _CUSTOM_INCOMPLETE_MAX_TOTAL = 6
+# Keep in sync with CustomAssessmentSnapshot.componentLabel (Flutter).
+_CUSTOM_COMPONENT_LABELS = ("Needs work", "Fair", "Good", "Excellent")
 
 
 def _rebased_samples(samples):
@@ -1649,15 +1652,19 @@ class VisionSession:
                     code = result.validation.codes[0].value
                     raise ValueError(code)
                 # Completion validated the attempt (moving, same direction,
-                # prop travelled): 70% base, raw similarity fills 70..100.
-                # ``total``/level carry the same grade on the 0..12 scale for
-                # classroom persistence; ``raw_total`` and components stay
-                # the unmodified evidence-based rubric.
+                # prop travelled): 70% base, raw similarity fills 70..100,
+                # and the user-facing 0..12 ``total`` starts at competent (8)
+                # rising with raw quality to 12. ``raw_total`` and components
+                # stay the unmodified evidence-based rubric.
                 raw_total = result.total
                 score_percent = custom_validated_score_percent(raw_total)
-                total = custom_validated_total(score_percent)
+                total = custom_validated_total(raw_total)
+                # Displayed/persisted components get the same completion
+                # credit (floor 2/3); the strict values stay available below.
+                raw_component_scores = dict(result.component_scores)
                 result = replace(
                     result, total=total, performance_level=custom_performance_level(total),
+                    component_scores=custom_validated_components(raw_component_scores),
                 )
             else:
                 # The timer expired before completion was confirmed. Timeout
@@ -1688,14 +1695,17 @@ class VisionSession:
             payload["max_total"] = 12
             if completed:
                 payload["raw_total"] = raw_total
+                payload["raw_component_scores"] = raw_component_scores
                 payload["score_percent"] = score_percent
             else:
                 payload["score_percent"] = round(result.total * 100 / 12, 1)
             payload["assessment_outcome"] = (
                 "competent" if result.total >= 7 else "needs_improvement"
             )
+            # Qualitative labels (matching the Flutter breakdown) so the
+            # five 0..3 components are not read as addends of the 0..12 total.
             payload["feedback"] = [
-                f"{name}: {score}/3"
+                f"{name}: {_CUSTOM_COMPONENT_LABELS[min(3, max(0, score))]}"
                 for name, score in result.component_scores.items()
                 if score is not None
             ]
@@ -1715,7 +1725,9 @@ class VisionSession:
                     "uses both hands, so this attempt was scored on the hand, body, "
                     "and prop that were observed."
                 ))
-            for name, score in result.component_scores.items():
+            # Coaching follows the strict evidence, not the displayed floor.
+            coaching_scores = raw_component_scores if completed else result.component_scores
+            for name, score in coaching_scores.items():
                 if score is not None and score <= 1:
                     payload["feedback"].append(
                         "Keep the prop movement steady and smooth through each transition."

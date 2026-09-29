@@ -1228,13 +1228,40 @@ def validated_attempt_score_percent(raw_total: int) -> float:
                  + (100.0 - VALIDATED_ATTEMPT_BASE_PERCENT) * fraction, 1)
 
 
-def validated_attempt_total(score_percent: float) -> int:
-    """0..12 rubric-scale equivalent of a validated score, never overstated.
+# Completion credit on the 0..12 scale: a validated attempt starts at
+# competent (8) and each 3 raw points of quality add one, up to 12/12.
+VALIDATED_ATTEMPT_BASE_TOTAL = 8
 
-    Classroom persistence stores a 0..12 total whose performance level must
-    match it, so the saved grade must agree with the displayed percentage.
+
+def validated_attempt_total(raw_total: int) -> int:
+    """User-facing 0..12 total for an attempt completion already validated.
+
+    Same precondition as ``validated_attempt_score_percent``. Bands of the
+    strict raw total: 0..2 -> 8, 3..5 -> 9, 6..8 -> 10, 9..11 -> 11, 12 -> 12.
+    The raw total and component scores remain the unmodified evidence.
     """
-    return min(12, math.floor(score_percent * 12 / 100 + 1e-9))
+    raw = min(12, max(0, int(raw_total)))
+    return VALIDATED_ATTEMPT_BASE_TOTAL + min(4, raw // 3)
+
+
+# Displayed per-component floor for a validated attempt, so the breakdown
+# agrees with the completion-credited total (8/12 is competent ~ 2/3 each).
+VALIDATED_COMPONENT_FLOOR = 2
+
+
+def validated_component_scores(
+    components: Mapping[str, int | None],
+) -> dict[str, int | None]:
+    """User-facing 0..3 components for an attempt completion validated.
+
+    Same precondition as ``validated_attempt_total``. Higher strict scores
+    are kept; "Not assessed" (None) stays None. Callers keep the strict
+    values separately as diagnostic evidence.
+    """
+    return {
+        name: None if score is None else min(3, max(VALIDATED_COMPONENT_FLOOR, int(score)))
+        for name, score in components.items()
+    }
 
 
 def _evaluate_static_completion(
