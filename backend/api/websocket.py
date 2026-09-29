@@ -700,7 +700,11 @@ class VisionSession:
             readiness_profile_for(movement, prop_type, readiness_spec).requirements
             if self._is_custom_capture else ()
         )
-        self._yolo_frame_skip = 1 if self._is_custom else YOLO_FRAME_SKIP
+        # Reference authoring needs dense detector observations, so capture
+        # runs YOLO every AI tick. Assessment uses the configured cadence to
+        # avoid unnecessary inference load; skipped ticks only reuse cached
+        # boxes, and coasted (unconfirmed) boxes never become sample evidence.
+        self._yolo_frame_skip = 1 if self._is_custom_capture else YOLO_FRAME_SKIP
         if self._is_freestyle:
             diagnostics_mode = "freestyle"
         elif self._is_custom:

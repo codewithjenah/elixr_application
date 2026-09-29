@@ -1674,6 +1674,44 @@ def test_official_session_keeps_global_yolo_cadence():
     assert session._orientation_detector is None
 
 
+def test_custom_assessment_uses_global_yolo_cadence():
+    session = websocket_api.VisionSession(
+        "Custom Movement",
+        session_mode="custom_assessment",
+        custom_movement_template=_template().to_dict(),
+    )
+
+    assert session._yolo_frame_skip == YOLO_FRAME_SKIP
+
+
+def test_skipped_yolo_assessment_tick_never_samples_coasted_prop():
+    session = websocket_api.VisionSession(
+        "Custom Movement",
+        session_mode="custom_assessment",
+        custom_movement_template=_template().to_dict(),
+    )
+    started = time.monotonic()
+    session._custom_samples = []
+    session._custom_capture_started_at = started
+    session._custom_capture_deadline = None
+    session._last_live_bottles = [
+        PropDetection(10, 10, 30, 50, 0.9, track_id=4, yolo_confirmed=False)
+    ]
+    frame = np.zeros((100, 100, 3), dtype=np.uint8)
+
+    normalized = session._cached_normalized_props()
+    session._record_custom_sample(
+        captured=CapturedFrame(frame, started + 0.1, 1),
+        frame=frame,
+        normalized=normalized,
+        hands=None, pose=None, yolo_attempted=False,
+    )
+
+    assert normalized.primary == ()
+    assert session._custom_samples[0].prop is None
+    assert session._custom_samples[0].prop_metadata == {"yolo_attempted": False}
+
+
 def test_custom_capture_diagnostics_are_bounded_and_cause_oriented():
     samples = (
         FrameSample(
