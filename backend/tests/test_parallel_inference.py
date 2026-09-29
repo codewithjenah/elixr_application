@@ -307,6 +307,10 @@ def test_custom_stages_hand_recovery_after_parallel_yolo_and_pose(
         def __init__(self, **kwargs):
             super().__init__(**kwargs)
             self.roi_only_when_below_capacity = kwargs["roi_only_when_below_capacity"]
+            self.rotated_gate = (
+                kwargs["rotated_min_consecutive_misses"],
+                kwargs["rotated_sustained_interval"],
+            )
 
         def detect_independent(self, frame, *, captured_at_monotonic=None):
             self.detect_calls += 1
@@ -351,6 +355,10 @@ def test_custom_stages_hand_recovery_after_parallel_yolo_and_pose(
         assert hands is observed_hands and pose is observed_pose
         assert session.hands_detector.detect_calls == 1
         assert session.hands_detector.roi_only_when_below_capacity is True
+        # Only Custom assessment gates rotated recovery; capture stays immediate.
+        assert session.hands_detector.rotated_gate == (
+            (2, 2) if session_mode == "custom_assessment" else (1, 1)
+        )
         assert session.pose_detector.detect_calls == 1
         assert session.timings.count("hands") == 1
         assert session.timings.count("pose") == 1

@@ -199,6 +199,8 @@ class HandsDetector:
         bartender_roi_fallback: bool = False,
         timestamp_clock: Optional[HandsTimestampClock] = None,
         roi_only_when_below_capacity: bool = False,
+        rotated_min_consecutive_misses: int = 1,
+        rotated_sustained_interval: int = 1,
     ):
         self._model_path = ensure_hand_model()
         self._max_num_hands = max_num_hands
@@ -206,6 +208,9 @@ class HandsDetector:
         self._bartender_roi_fallback = bartender_roi_fallback
         self._roi_only_when_below_capacity = roi_only_when_below_capacity
         self._roi_skip_next = False
+        self._rotated_min_consecutive_misses = max(1, rotated_min_consecutive_misses)
+        self._rotated_sustained_interval = max(1, rotated_sustained_interval)
+        self._primary_miss_streak = 0
         # Production VIDEO timestamps follow the actual captured-frame clock.
         self.timestamp_clock = default_timestamp_clock(timestamp_clock)
         self.timestamp_clock.reset()
@@ -399,10 +404,16 @@ class HandsDetector:
         stats.record_primary_outcome(
             hands is not None and bool(hands.hands)
         )
+        if hands is None:
+            self._primary_miss_streak = (
+                getattr(self, "_primary_miss_streak", 0) + 1
+            )
+        else:
+            self._primary_miss_streak = 0
 
         rotated_recovered = False
         rotated_attempted = False
-        if hands is None and self._rotated_fallback:
+        if hands is None and self._rotated_fallback and self._rotated_gate_open(stats):
             t0 = time.perf_counter()
             hands = self._detect_rotated(frame)
             stats.record_rotated(time.perf_counter() - t0)
@@ -411,6 +422,19 @@ class HandsDetector:
             stats.record_rotated_outcome(rotated_recovered)
 
         return HandsIndependentResult(hands, rotated_attempted, rotated_recovered)
+
+    def _rotated_gate_open(self, stats: HandsCallStats) -> bool:
+        """Custom gate: rotate only after N consecutive primary misses, then
+        every `interval` misses. Skipped frames return current-frame None;
+        no earlier rotated result is carried forward. Defaults (1, 1) keep
+        the immediate official behavior."""
+        min_misses = getattr(self, "_rotated_min_consecutive_misses", 1)
+        interval = getattr(self, "_rotated_sustained_interval", 1)
+        streak = getattr(self, "_primary_miss_streak", 1)
+        if streak >= min_misses and (streak - min_misses) % interval == 0:
+            return True
+        stats.record_rotated_gate_skip()
+        return False
 
     def finish_with_prop(
         self,

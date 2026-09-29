@@ -71,8 +71,11 @@ def test_fallback_activation_rate_and_reset():
     assert abs(snap["fallback_activation_rate"] - 0.2) < 1e-9
     assert "hands_primary=" in stats.format_line()
     assert "hands_fallback=20.0%" in stats.format_line()
-    assert "roi_cooldown_skips=2 hands_fallback=" in stats.format_line()
+    assert "roi_cooldown_skips=2 rot_gate_skips=0 hands_fallback=" in stats.format_line()
+    stats.record_rotated_gate_skip()
+    assert "rot_gate_skips=1 " in stats.format_line()
     stats.reset()
+    assert "rot_gate_skips=0 " in stats.format_line()
     assert stats.detect_calls == 0
     assert "roi_cooldown_skips=0 " in stats.format_line()
     assert stats.snapshot()["rotated_calls"] == 0
@@ -788,3 +791,92 @@ def test_official_roi_fallback_remains_immediate_after_failures():
         detector.detect(_blank(), _bartender_bottle())
     assert calls["roi"] == 4
     assert detector.stats.snapshot()["roi_cooldown_skips"] == 0
+
+
+def _rot_gate_stub(primary_seq, *, min_misses, interval, bartender_roi=False):
+    calls = {"rot": 0}
+    seq = iter(primary_seq)
+
+    class Stub(HandsDetector):
+        def __init__(self):
+            self._rotated_fallback = True
+            self._bartender_roi_fallback = bartender_roi
+            self._roi_only_when_below_capacity = bartender_roi
+            self._roi_skip_next = False
+            self._max_num_hands = 2
+            self._rotated_min_consecutive_misses = min_misses
+            self._rotated_sustained_interval = interval
+            self._primary_miss_streak = 0
+
+        def _detect_primary(self, frame):
+            hit = next(seq)
+            return (
+                HandsResult(hands=[_hand_as(_hand(0.2, 0.5), "Right")])
+                if hit
+                else None
+            )
+
+        def _detect_rotated(self, frame):
+            calls["rot"] += 1
+            return HandsResult(hands=[_hand_as(_hand(0.6, 0.5), "Left")])
+
+    return Stub(), calls
+
+
+def test_custom_assessment_first_miss_skips_rotated_and_second_runs():
+    detector, calls = _rot_gate_stub([False, False], min_misses=2, interval=2)
+    first = detector.detect_independent(_blank())
+    assert first.hands is None and not first.rotated_attempted
+    assert calls["rot"] == 0
+    second = detector.detect_independent(_blank())
+    assert second.rotated_attempted and second.rotated_recovered
+    assert calls["rot"] == 1
+    assert detector.stats.snapshot()["rot_gate_skips"] == 1
+
+
+def test_custom_assessment_primary_success_resets_miss_streak():
+    detector, calls = _rot_gate_stub(
+        [False, True, False, True, False], min_misses=2, interval=2
+    )
+    results = [detector.detect_independent(_blank()) for _ in range(5)]
+    assert calls["rot"] == 0
+    assert not any(r.rotated_attempted for r in results)
+
+
+def test_custom_assessment_sustained_misses_rotate_every_other_frame_without_reuse():
+    detector, calls = _rot_gate_stub([False] * 7, min_misses=2, interval=2)
+    results = [detector.detect_independent(_blank()) for _ in range(7)]
+    attempted = [r.rotated_attempted for r in results]
+    assert attempted == [False, True, False, True, False, True, False]
+    assert calls["rot"] == 3
+    # Skipped frames never carry a previous rotated result forward.
+    for r in results:
+        if not r.rotated_attempted:
+            assert r.hands is None
+
+
+def test_default_rotated_fallback_remains_immediate():
+    # Official Normal/Claw Grip and Custom capture use the (1, 1) defaults.
+    detector, calls = _rot_gate_stub([False] * 4, min_misses=1, interval=1)
+    results = [detector.detect_independent(_blank()) for _ in range(4)]
+    assert all(r.rotated_attempted for r in results)
+    assert calls["rot"] == 4
+    assert detector.stats.snapshot()["rot_gate_skips"] == 0
+
+
+def test_rotated_gate_does_not_change_roi_cooldown():
+    detector, calls = _rot_gate_stub(
+        [True] * 6, min_misses=2, interval=2, bartender_roi=True
+    )
+    roi = {"n": 0}
+
+    def fake_roi(frame, bottle):
+        roi["n"] += 1
+        return HandsResult(hands=[_zone_hand(0.375, 0.32)])
+
+    detector._detect_bartender_roi = fake_roi
+    for _ in range(6):
+        detector.detect(_blank(), _bartender_bottle())
+    assert roi["n"] == 3
+    assert detector.stats.snapshot()["roi_cooldown_skips"] == 3
+    assert calls["rot"] == 0

@@ -2674,6 +2674,15 @@ class VisionSession:
                     roi_only_when_below_capacity=(
                         self._is_custom and self._hands_max == 2
                     ),
+                    # Custom assessment tolerates a one-frame primary miss and
+                    # then rotates every other miss; capture/official stay
+                    # immediate so reference authoring is unaffected.
+                    rotated_min_consecutive_misses=(
+                        2 if self._is_custom_assessment else 1
+                    ),
+                    rotated_sustained_interval=(
+                        2 if self._is_custom_assessment else 1
+                    ),
                 )
                 logger.info(
                     "HandsDetector created movement=%s hands_max=%s",
