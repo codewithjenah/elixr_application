@@ -44,6 +44,11 @@ POSITION_DETECTED = "position_detected"
 # deliberately loose because compare_sequence grades the quality.
 _MIN_PATH_RATIO = 0.35
 _MAX_COMPLETION_SAMPLES = 240
+# Pure-Python DTW is O(reference x candidate) per moving modality and retry
+# candidate. Two observations per phase of the 32-frame canonical sequence is
+# enough to judge path shape, so only the alignment input is strided; gates,
+# timestamps, retries and observability keep the full candidate.
+_LIVE_ALIGNMENT_MAX_SAMPLES = 64
 # Live completion runs synchronously in the AI frame pass every 0.5 s and DTW
 # cost is linear in the candidate length. Completion is sticky, so a recent
 # window that still spans a slow execution of the movement is sufficient.
@@ -146,12 +151,13 @@ def _centred(sequence: Sequence[FrameSample], modality: str) -> tuple[FrameSampl
     return tuple(frames)
 
 
-def _bounded_samples(samples: Sequence[FrameSample]) -> tuple[FrameSample, ...]:
-    if len(samples) <= _MAX_COMPLETION_SAMPLES:
+def _bounded_samples(
+    samples: Sequence[FrameSample], limit: int = _MAX_COMPLETION_SAMPLES
+) -> tuple[FrameSample, ...]:
+    """Evenly strided real observations, keeping the first and last."""
+    if len(samples) <= limit:
         return tuple(samples)
-    stride = (len(samples) - 1 + _MAX_COMPLETION_SAMPLES - 2) // (
-        _MAX_COMPLETION_SAMPLES - 1
-    )
+    stride = (len(samples) - 1 + limit - 2) // (limit - 1)
     bounded = list(samples[::stride])
     if bounded[-1] is not samples[-1]:
         bounded.append(samples[-1])
@@ -442,7 +448,8 @@ def evaluate_completion_segment(
     )
     thresholds = _moving_thresholds(template)
     if not thresholds:
-        return _evaluate_dynamic_candidate(template, samples, bounded, normalized, 0), None
+        return _evaluate_dynamic_candidate(
+            template, samples, bounded, normalized, 0, thresholds), None
     offset = 0
     best: tuple[str, int | None] = (WAITING_FOR_MOVEMENT, None)
     for _ in range(_MAX_ATTEMPT_RESTARTS + 1):
@@ -450,7 +457,8 @@ def evaluate_completion_segment(
         if start is None:
             break
         start += offset
-        status = _evaluate_dynamic_candidate(template, samples, bounded, normalized, start)
+        status = _evaluate_dynamic_candidate(
+            template, samples, bounded, normalized, start, thresholds)
         start_ms = normalized[start].timestamp_ms
         if status == MOVEMENT_COMPLETED:
             return status, start_ms
@@ -471,11 +479,11 @@ def _evaluate_dynamic_candidate(
     bounded: Sequence[FrameSample],
     normalized: Sequence[FrameSample],
     movement_start: int,
+    thresholds: Mapping[str, float],
 ) -> str:
     """Completion gates for one candidate attempt beginning at ``movement_start``."""
     required = template.required_modalities
     reference = template.canonical_sequence
-    thresholds = _moving_thresholds(template)
     moving_modalities = list(thresholds)
     if not moving_modalities:
         if template.rotation_trace is not None:
@@ -572,7 +580,10 @@ def _evaluate_dynamic_candidate(
         if (ratio >= _MIN_PATH_RATIO and sustained
                 and _same_movement(directional, progress, phase_progress, min_progress)):
             centred_reference = _centred(reference, modality)
-            centred_candidate = _centred(candidate, modality)
+            # Centre on the full candidate, then stride; path indexes below
+            # refer to this exact bounded sequence.
+            centred_candidate = _bounded_samples(
+                _centred(candidate, modality), _LIVE_ALIGNMENT_MAX_SAMPLES)
             alignment = _dtw(centred_reference, centred_candidate, (modality,))
             errors = [
                 error for i, j in alignment

@@ -629,6 +629,75 @@ def test_repeated_wrong_attempts_still_never_complete():
     ) != MOVEMENT_COMPLETED
 
 
+def _full_body_frame(timestamp_ms, u, *, prop=True):
+    """Hands, pose and prop travel together; ``u`` in 0..1 is the phase."""
+    x = 0.3 + 0.3 * u
+    return FrameSample(
+        timestamp_ms=timestamp_ms,
+        pose={"11": Landmark(0.3, 0.3), "12": Landmark(0.7, 0.3),
+              "13": Landmark(0.3 + 0.15 * u, 0.45), "15": Landmark(x, 0.55)},
+        hands={f"left:0:{key}": Landmark(x + 0.0005 * key, 0.55 - 0.004 * key)
+               for key in (0, 4, 5, 8, 9, 20)},
+        prop=Landmark(x + 0.01, 0.45) if prop else None,
+        prop_metadata={"bbox_width": 0.06, "bbox_height": 0.25} if prop else {},
+    )
+
+
+def _long_live_candidate(phases, **kwargs):
+    return tuple(_full_body_frame(index * 33, u, **kwargs) for index, u in enumerate(phases))
+
+
+def test_live_alignment_input_stays_bounded_for_long_candidates(monkeypatch):
+    from assessment.custom_movement import completion
+
+    reference = tuple(_full_body_frame(index * 100, index / 19) for index in range(20))
+    template = build_template([reference] * 3)
+    assert template.required_modalities == ("hands", "pose", "prop_translation")
+    idle = [0.0] * 20
+    wrong = [1 - index / 19 * 0.2 for index in range(20)] + [0.0] * 10
+    correct = [index / 99 for index in range(100)] + [1.0] * 20
+    reversed_only = [1 - index / 99 for index in range(100)] + [0.0] * 20
+
+    aligned: list[tuple] = []
+    validated: list[int] = []
+    real_dtw = completion._dtw
+    real_validate = completion.validate_assessment_sequence
+
+    def spy_dtw(ref, candidate, modalities):
+        aligned.append(tuple(candidate))
+        return real_dtw(ref, candidate, modalities)
+
+    def spy_validate(samples, *args, **kwargs):
+        validated.append(len(samples))
+        return real_validate(samples, *args, **kwargs)
+
+    monkeypatch.setattr(completion, "_dtw", spy_dtw)
+    monkeypatch.setattr(completion, "validate_assessment_sequence", spy_validate)
+
+    # Idle, three failed attempts, then a slow correct retry: 230 observations.
+    samples = _long_live_candidate(idle + wrong * 3 + correct)
+    assert len(samples) == 230
+    assert evaluate_completion(template, samples) == MOVEMENT_COMPLETED
+    assert aligned and all(
+        len(candidate) <= completion._LIVE_ALIGNMENT_MAX_SAMPLES for candidate in aligned)
+    last = aligned[-1]
+    # Endpoints of the (much longer) attempt are represented, chronologically.
+    assert last[-1].timestamp_ms == samples[-1].timestamp_ms
+    assert [f.timestamp_ms for f in last] == sorted(f.timestamp_ms for f in last)
+    assert last[0].timestamp_ms <= samples[len(idle) + 3 * len(wrong)].timestamp_ms
+    # Observability still validates the full, unstrided source candidate.
+    assert validated and max(validated) > completion._LIVE_ALIGNMENT_MAX_SAMPLES
+
+    assert evaluate_completion(
+        template, _long_live_candidate(idle + reversed_only)) != MOVEMENT_COMPLETED
+    assert evaluate_completion(
+        template, _long_live_candidate([0.0] * 230)) == WAITING_FOR_MOVEMENT
+    assert evaluate_completion(
+        template, _long_live_candidate(idle + wrong * 3 + correct, prop=False)
+    ) != MOVEMENT_COMPLETED
+    assert all(len(c) <= completion._LIVE_ALIGNMENT_MAX_SAMPLES for c in aligned)
+
+
 def test_completion_after_failed_attempt_scores_only_the_completed_segment():
     template = _template()
     _, samples = _wrong_then_correct()
