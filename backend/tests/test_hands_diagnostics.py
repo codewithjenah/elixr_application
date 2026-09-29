@@ -61,15 +61,20 @@ def test_fallback_activation_rate_and_reset():
     stats.mark_fallback_activated()
     stats.record_bartender_roi(0.090, ran_image=True)
     stats.mark_fallback_activated()
+    stats.record_roi_cooldown_skip()
+    stats.record_roi_cooldown_skip()
     snap = stats.snapshot()
     assert snap["detect_calls"] == 10
+    assert snap["roi_cooldown_skips"] == 2
     assert snap["rotated_calls"] == 1
     assert snap["bartender_image_calls"] == 1
     assert abs(snap["fallback_activation_rate"] - 0.2) < 1e-9
     assert "hands_primary=" in stats.format_line()
     assert "hands_fallback=20.0%" in stats.format_line()
+    assert "roi_cooldown_skips=2 hands_fallback=" in stats.format_line()
     stats.reset()
     assert stats.detect_calls == 0
+    assert "roi_cooldown_skips=0 " in stats.format_line()
     assert stats.snapshot()["rotated_calls"] == 0
 
 

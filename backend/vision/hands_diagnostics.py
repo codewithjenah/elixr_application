@@ -208,6 +208,7 @@ class HandsCallStats:
             f"hands_roi={snap['bartender_image_calls']}/{snap['detect_calls']} "
             f"roi_mean={snap['bartender_mean_ms']:.1f}ms "
             f"roi_p95={snap['bartender_p95_ms']:.1f}ms "
+            f"roi_cooldown_skips={snap['roi_cooldown_skips']} "
             f"hands_fallback={rate_pct:.1f}%"
         )
 
