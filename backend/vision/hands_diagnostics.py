@@ -215,7 +215,9 @@ class HandsCallStats:
             f"roi_p95={snap['bartender_p95_ms']:.1f}ms "
             f"roi_cooldown_skips={snap['roi_cooldown_skips']} "
             f"rot_gate_skips={snap['rot_gate_skips']} "
-            f"hands_fallback={rate_pct:.1f}%"
+            f"hands_fallback={rate_pct:.1f}% "
+            f"rot_ok={snap['rotated_successes']}/{snap['rotated_attempts']} "
+            f"roi_ok={snap['bartender_successes']}/{snap['bartender_attempts']}"
         )
 
     def reset(self) -> None:

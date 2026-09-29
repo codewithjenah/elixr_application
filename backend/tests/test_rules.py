@@ -1857,11 +1857,15 @@ def test_session_enables_only_its_grip_fallback(monkeypatch):
             roi_only_when_below_capacity: bool = False,
             rotated_min_consecutive_misses: int = 1,
             rotated_sustained_interval: int = 1,
+            rotated_waste_backoff: int = 0,
+            roi_max_cooldown: int = 1,
         ):
             assert roi_only_when_below_capacity is False
-            # Official grips keep immediate rotated fallback.
+            # Official grips keep immediate rotated fallback with no backoff.
             assert rotated_min_consecutive_misses == 1
             assert rotated_sustained_interval == 1
+            assert rotated_waste_backoff == 0
+            assert roi_max_cooldown == 1
             fallback_settings.append(
                 (max_num_hands, rotated_fallback, bartender_roi_fallback)
             )

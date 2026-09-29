@@ -1935,6 +1935,9 @@ class VisionSession:
         if template is None:
             raise ValueError("missing_custom_movement_template")
         evaluation_started = time.perf_counter()
+        # Thread CPU time separates real completion work from waiting on the
+        # GIL held by the capture/AI/preview threads.
+        cpu_started = time.thread_time()
         # One cache per recording: a new generation never reuses old samples.
         if self._custom_completion_cache is None or self._custom_completion_cache[0] != job.generation:
             self._custom_completion_cache = (job.generation, CustomLiveCompletionCache())
@@ -1949,6 +1952,7 @@ class VisionSession:
         elapsed = time.perf_counter() - evaluation_started
         self._custom_completion_last_eval_s = elapsed
         self.timings.add("custom_completion", elapsed)
+        self.timings.add("custom_completion_cpu", time.thread_time() - cpu_started)
         return _CustomCompletionResult(
             job=job, progress=progress, attempt_start_ms=attempt_start_ms,
             progress_estimate=estimate,
@@ -2923,6 +2927,11 @@ class VisionSession:
                     rotated_sustained_interval=(
                         2 if self._is_custom_assessment else 1
                     ),
+                    # Custom assessment also backs off rotated/ROI passes that
+                    # keep finding nothing (hands out of view), which otherwise
+                    # add 40-70 ms to most AI frames and drag down AI FPS.
+                    rotated_waste_backoff=1 if self._is_custom_assessment else 0,
+                    roi_max_cooldown=3 if self._is_custom_assessment else 1,
                 )
                 logger.info(
                     "HandsDetector created movement=%s hands_max=%s",

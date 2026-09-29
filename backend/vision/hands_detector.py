@@ -201,6 +201,8 @@ class HandsDetector:
         roi_only_when_below_capacity: bool = False,
         rotated_min_consecutive_misses: int = 1,
         rotated_sustained_interval: int = 1,
+        rotated_waste_backoff: int = 0,
+        roi_max_cooldown: int = 1,
     ):
         self._model_path = ensure_hand_model()
         self._max_num_hands = max_num_hands
@@ -211,6 +213,14 @@ class HandsDetector:
         self._rotated_min_consecutive_misses = max(1, rotated_min_consecutive_misses)
         self._rotated_sustained_interval = max(1, rotated_sustained_interval)
         self._primary_miss_streak = 0
+        # Gate openings skipped after a rotated attempt that found no hand;
+        # 0 keeps every opening (official/capture behavior).
+        self._rotated_waste_backoff = max(0, rotated_waste_backoff)
+        self._rotated_backoff_skip = 0
+        # Longest ROI cooldown (eligible frames) after consecutive wasted ROI
+        # attempts; 1 keeps the single-frame cooldown.
+        self._roi_max_cooldown = max(1, roi_max_cooldown)
+        self._roi_wasted_streak = 0
         # Production VIDEO timestamps follow the actual captured-frame clock.
         self.timestamp_clock = default_timestamp_clock(timestamp_clock)
         self.timestamp_clock.reset()
@@ -410,6 +420,7 @@ class HandsDetector:
             )
         else:
             self._primary_miss_streak = 0
+            self._rotated_backoff_skip = 0
 
         rotated_recovered = False
         rotated_attempted = False
@@ -420,6 +431,12 @@ class HandsDetector:
             rotated_attempted = True
             rotated_recovered = hands is not None and bool(hands.hands)
             stats.record_rotated_outcome(rotated_recovered)
+            # A rotated pass that finds nothing (hands truly out of view) is
+            # ~40-70 ms of wasted Hands time; back off until one recovers.
+            self._rotated_backoff_skip = (
+                0 if rotated_recovered
+                else getattr(self, "_rotated_waste_backoff", 0)
+            )
 
         return HandsIndependentResult(hands, rotated_attempted, rotated_recovered)
 
@@ -432,7 +449,10 @@ class HandsDetector:
         interval = getattr(self, "_rotated_sustained_interval", 1)
         streak = getattr(self, "_primary_miss_streak", 1)
         if streak >= min_misses and (streak - min_misses) % interval == 0:
-            return True
+            skip = getattr(self, "_rotated_backoff_skip", 0)
+            if skip <= 0:
+                return True
+            self._rotated_backoff_skip = skip - 1
         stats.record_rotated_gate_skip()
         return False
 
@@ -448,31 +468,17 @@ class HandsDetector:
         fallback_used = independent.rotated_attempted
         rotated_recovered = independent.rotated_recovered
 
-        if (
-            not self._bartender_roi_fallback
-            or bottle is None
-            or (
-                getattr(self, "_roi_only_when_below_capacity", False)
-                and hands is not None
-                and len(hands.hands) >= self._max_num_hands
-                and all(hand.points for hand in hands.hands)
-            )
-        ):
-            if fallback_used:
-                stats.mark_fallback_activated()
-                stats.record_fallback_frame(
-                    attempted=True,
-                    recovered=rotated_recovered,
-                )
-            return hands
-
-        frame_height, frame_width = frame.shape[:2]
-        if _has_bartender_candidate(
-            hands,
-            bottle,
-            frame_width=frame_width,
-            frame_height=frame_height,
-        ):
+        at_capacity = (
+            getattr(self, "_roi_only_when_below_capacity", False)
+            and hands is not None
+            and len(hands.hands) >= self._max_num_hands
+            and all(hand.points for hand in hands.hands)
+        )
+        if at_capacity:
+            # Every hand is visible again: a later loss starts a fresh backoff.
+            self._roi_wasted_streak = 0
+            self._roi_skip_next = 0
+        if not self._bartender_roi_fallback or bottle is None or at_capacity:
             if fallback_used:
                 stats.mark_fallback_activated()
                 stats.record_fallback_frame(
@@ -484,10 +490,33 @@ class HandsDetector:
         fill_missing_only = bool(
             getattr(self, "_roi_only_when_below_capacity", False)
         )
-        if fill_missing_only and getattr(self, "_roi_skip_next", False):
-            # Custom cooldown: after a wasted ROI attempt, skip one eligible
-            # frame (CooldownRoiPolicy). Output stays current-frame primary.
-            self._roi_skip_next = False
+        # Cooldown/backoff applies to two-hand custom fill-in and to any
+        # detector configured with a longer ROI cooldown (custom assessment,
+        # including one-hand templates); official ROI stays immediate.
+        roi_backoff = fill_missing_only or getattr(self, "_roi_max_cooldown", 1) > 1
+        frame_height, frame_width = frame.shape[:2]
+        if _has_bartender_candidate(
+            hands,
+            bottle,
+            frame_width=frame_width,
+            frame_height=frame_height,
+        ):
+            if roi_backoff and not fill_missing_only:
+                # A hand is at the prop again: a later loss backs off afresh.
+                self._roi_wasted_streak = 0
+                self._roi_skip_next = 0
+            if fallback_used:
+                stats.mark_fallback_activated()
+                stats.record_fallback_frame(
+                    attempted=True,
+                    recovered=rotated_recovered,
+                )
+            return hands
+
+        if roi_backoff and getattr(self, "_roi_skip_next", False):
+            # Custom cooldown: after wasted ROI attempts, skip eligible frames
+            # (CooldownRoiPolicy). Output stays current-frame primary.
+            self._roi_skip_next = int(self._roi_skip_next) - 1
             stats.record_roi_cooldown_skip()
             if fallback_used:
                 stats.mark_fallback_activated()
@@ -510,16 +539,29 @@ class HandsDetector:
             max_num_hands=self._max_num_hands,
             fill_missing_only=fill_missing_only,
         )
-        if fill_missing_only:
-            before = 0 if hands is None else len(hands.hands)
-            after = 0 if merged is None else len(merged.hands)
-            self._roi_skip_next = after <= before
         bartender_recovered = _has_bartender_candidate(
             merged,
             bottle,
             frame_width=frame_width,
             frame_height=frame_height,
         )
+        if roi_backoff:
+            before = 0 if hands is None else len(hands.hands)
+            after = 0 if merged is None else len(merged.hands)
+            # Two-hand fill-in wastes a pass that adds no hand; otherwise a
+            # pass is wasted when no hand ends up at the prop.
+            wasted = after <= before if fill_missing_only else not bartender_recovered
+            if wasted:
+                # Consecutive wasted ROI passes back off 1, 2, 4... frames,
+                # capped at roi_max_cooldown; a recovery resets it.
+                streak = getattr(self, "_roi_wasted_streak", 0) + 1
+                self._roi_wasted_streak = streak
+                self._roi_skip_next = min(
+                    2 ** (streak - 1), max(1, getattr(self, "_roi_max_cooldown", 1))
+                )
+            else:
+                self._roi_wasted_streak = 0
+                self._roi_skip_next = 0
         stats.record_bartender_outcome(bartender_recovered)
         stats.mark_fallback_activated()
         stats.record_fallback_frame(

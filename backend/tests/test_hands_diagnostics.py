@@ -880,3 +880,143 @@ def test_rotated_gate_does_not_change_roi_cooldown():
     assert roi["n"] == 3
     assert detector.stats.snapshot()["roi_cooldown_skips"] == 3
     assert calls["rot"] == 0
+
+
+# --- Custom assessment backoff after wasted fallbacks -------------------------
+
+def _backoff_rot_stub(primary_seq, rotated_seq, *, backoff):
+    detector, calls = _rot_gate_stub(primary_seq, min_misses=2, interval=2)
+    detector._rotated_waste_backoff = backoff
+    outcomes = iter(rotated_seq)
+
+    def rotated(frame):
+        calls["rot"] += 1
+        return (HandsResult(hands=[_hand_as(_hand(0.6, 0.5), "Left")])
+                if next(outcomes) else None)
+
+    detector._detect_rotated = rotated
+    return detector, calls
+
+
+def test_wasted_rotated_attempt_skips_the_next_opening():
+    detector, calls = _backoff_rot_stub([False] * 12, [False] * 12, backoff=1)
+    attempted = [detector.detect_independent(_blank()).rotated_attempted for _ in range(12)]
+    # Openings at misses 2,4,6,8,10,12; each waste skips the next opening.
+    assert attempted == [False, True, False, False, False, True,
+                         False, False, False, True, False, False]
+    assert calls["rot"] == 3
+
+
+def test_recovering_rotated_attempts_keep_every_other_frame():
+    detector, calls = _backoff_rot_stub([False] * 8, [True] * 8, backoff=1)
+    attempted = [detector.detect_independent(_blank()).rotated_attempted for _ in range(8)]
+    assert attempted == [False, True, False, True, False, True, False, True]
+
+
+def test_primary_hit_clears_rotated_backoff():
+    detector, calls = _backoff_rot_stub(
+        [False, False, True, False, False], [False, True], backoff=1)
+    attempted = [detector.detect_independent(_blank()).rotated_attempted for _ in range(5)]
+    assert attempted == [False, True, False, False, True]
+
+
+def test_default_rotated_has_no_backoff():
+    detector, calls = _backoff_rot_stub([False] * 6, [False] * 6, backoff=0)
+    attempted = [detector.detect_independent(_blank()).rotated_attempted for _ in range(6)]
+    assert attempted == [False, True, False, True, False, True]
+
+
+def test_consecutive_wasted_roi_grows_cooldown_up_to_cap():
+    calls = {"roi": 0}
+    detector = _custom_stub(
+        calls, lambda: HandsResult(hands=[_zone_hand(0.375, 0.32)])
+    )
+    detector._roi_max_cooldown = 3
+    ran = []
+    for _ in range(14):
+        before = calls["roi"]
+        detector.detect(_blank(), _bartender_bottle())
+        ran.append(calls["roi"] > before)
+    # Cooldowns after each waste: 1, 2, 3, 3 skipped eligible frames.
+    assert ran == [True, False, True, False, False, True, False, False, False,
+                   True, False, False, False, True]
+
+
+def test_full_hands_reset_roi_backoff():
+    calls = {"roi": 0}
+    detector = _custom_stub(
+        calls, lambda: HandsResult(hands=[_zone_hand(0.375, 0.32)])
+    )
+    detector._roi_max_cooldown = 3
+    for _ in range(3):  # waste, skip, waste -> cooldown 2 pending
+        detector.detect(_blank(), _bartender_bottle())
+    two = HandsResult(hands=[_hand_as(_hand(0.9, 0.9), "Right"),
+                             _hand_as(_hand(0.1, 0.9), "Left")])
+    detector._detect_primary = lambda frame: two
+    detector.detect(_blank(), _bartender_bottle())
+    detector._detect_primary = lambda frame: HandsResult(hands=[two.hands[0]])
+    before = calls["roi"]
+    detector.detect(_blank(), _bartender_bottle())
+    assert calls["roi"] == before + 1
+
+
+def test_format_line_reports_fallback_recoveries():
+    stats = HandsCallStats()
+    stats.record_rotated_outcome(True)
+    stats.record_rotated_outcome(False)
+    stats.record_bartender_outcome(False)
+    line = stats.format_line()
+    assert line.endswith("rot_ok=1/2 roi_ok=0/1")
+
+
+def _one_hand_stub(calls, roi_result, *, max_cooldown):
+    class Stub(HandsDetector):
+        def __init__(self):
+            self._rotated_fallback = False
+            self._bartender_roi_fallback = True
+            self._roi_only_when_below_capacity = False
+            self._roi_skip_next = 0
+            self._max_num_hands = 1
+            self._roi_max_cooldown = max_cooldown
+
+        def _detect_primary(self, frame):
+            # A visible hand that is not at the prop keeps ROI eligible.
+            return HandsResult(hands=[_hand_as(_hand(0.9, 0.9), "Right")])
+
+        def _detect_bartender_roi(self, frame, bottle):
+            calls["roi"] += 1
+            return roi_result()
+
+    return Stub()
+
+
+def test_one_hand_custom_assessment_backs_off_wasted_roi():
+    calls = {"roi": 0}
+    detector = _one_hand_stub(calls, lambda: None, max_cooldown=3)
+    ran = []
+    for _ in range(14):
+        before = calls["roi"]
+        detector.detect(_blank(), _bartender_bottle())
+        ran.append(calls["roi"] > before)
+    assert ran == [True, False, True, False, False, True, False, False, False,
+                   True, False, False, False, True]
+    assert detector.stats.snapshot()["roi_cooldown_skips"] == 9
+
+
+def test_one_hand_recovering_roi_is_not_backed_off():
+    calls = {"roi": 0}
+    detector = _one_hand_stub(
+        calls, lambda: HandsResult(hands=[_hand_as(_zone_hand(0.375, 0.32), "Left")]),
+        max_cooldown=3)
+    for _ in range(4):
+        detector.detect(_blank(), _bartender_bottle())
+    assert calls["roi"] == 4
+
+
+def test_one_hand_default_cooldown_keeps_official_immediate_roi():
+    calls = {"roi": 0}
+    detector = _one_hand_stub(calls, lambda: None, max_cooldown=1)
+    for _ in range(5):
+        detector.detect(_blank(), _bartender_bottle())
+    assert calls["roi"] == 5
+    assert detector.stats.snapshot()["roi_cooldown_skips"] == 0
