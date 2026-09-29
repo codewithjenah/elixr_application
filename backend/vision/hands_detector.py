@@ -136,17 +136,56 @@ def _bartender_crop_bounds(
     return left, top, right, bottom
 
 
+_DUPLICATE_PALM_DIST = 0.05
+
+
+def _anchor(hand: HandLandmarks) -> Optional[Point2D]:
+    palm = hand.palm_center()
+    if palm is not None:
+        return palm
+    if not hand.points:
+        return None
+    return hand.points[min(hand.points)]
+
+
+def _is_same_hand(a: HandLandmarks, b: HandLandmarks) -> bool:
+    """Known equal handedness or co-located palms mean one physical hand."""
+    known = {"Left", "Right"}
+    if a.handedness in known and a.handedness == b.handedness:
+        return True
+    pa, pb = _anchor(a), _anchor(b)
+    if pa is None or pb is None:
+        return False
+    dist = ((pa.x - pb.x) ** 2 + (pa.y - pb.y) ** 2) ** 0.5
+    return dist <= _DUPLICATE_PALM_DIST
+
+
 def _merge_hands(
     primary: Optional[HandsResult],
     recovered: Optional[HandsResult],
     *,
     max_num_hands: int,
+    fill_missing_only: bool = False,
 ) -> Optional[HandsResult]:
     if recovered is None or not recovered.hands:
         return primary
 
     primary_hands = [] if primary is None else primary.hands
-    merged = (recovered.hands + primary_hands)[:max_num_hands]
+    if not fill_missing_only:
+        # Official Bartender recovery: an in-zone ROI hand may replace an
+        # out-of-zone primary hand when capacity is full.
+        merged = (recovered.hands + primary_hands)[:max_num_hands]
+        return HandsResult(hands=merged)
+
+    # Generic custom recovery: keep primary hands and add only distinct
+    # current-frame ROI hands into the missing capacity.
+    merged = list(primary_hands)[:max_num_hands]
+    for hand in recovered.hands:
+        if len(merged) >= max_num_hands:
+            break
+        if not hand.points or any(_is_same_hand(hand, kept) for kept in merged):
+            continue
+        merged.append(hand)
     return HandsResult(hands=merged)
 
 
@@ -166,6 +205,7 @@ class HandsDetector:
         self._rotated_fallback = rotated_fallback
         self._bartender_roi_fallback = bartender_roi_fallback
         self._roi_only_when_below_capacity = roi_only_when_below_capacity
+        self._roi_skip_next = False
         # Production VIDEO timestamps follow the actual captured-frame clock.
         self.timestamp_clock = default_timestamp_clock(timestamp_clock)
         self.timestamp_clock.reset()
@@ -417,6 +457,22 @@ class HandsDetector:
                 )
             return hands
 
+        fill_missing_only = bool(
+            getattr(self, "_roi_only_when_below_capacity", False)
+        )
+        if fill_missing_only and getattr(self, "_roi_skip_next", False):
+            # Custom cooldown: after a wasted ROI attempt, skip one eligible
+            # frame (CooldownRoiPolicy). Output stays current-frame primary.
+            self._roi_skip_next = False
+            stats.record_roi_cooldown_skip()
+            if fallback_used:
+                stats.mark_fallback_activated()
+                stats.record_fallback_frame(
+                    attempted=True,
+                    recovered=rotated_recovered,
+                )
+            return hands
+
         t0 = time.perf_counter()
         recovered = self._detect_bartender_roi(frame, bottle)
         stats.record_bartender_roi(
@@ -428,7 +484,12 @@ class HandsDetector:
             hands,
             recovered,
             max_num_hands=self._max_num_hands,
+            fill_missing_only=fill_missing_only,
         )
+        if fill_missing_only:
+            before = 0 if hands is None else len(hands.hands)
+            after = 0 if merged is None else len(merged.hands)
+            self._roi_skip_next = after <= before
         bartender_recovered = _has_bartender_candidate(
             merged,
             bottle,

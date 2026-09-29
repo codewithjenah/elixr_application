@@ -21,7 +21,7 @@ from vision.hands_benchmark import (
     synthetic_scene_frames,
     TimedCaptureFrame,
 )
-from vision.hands_detector import HandsDetector
+from vision.hands_detector import HandsDetector, _merge_hands
 from vision.hands_diagnostics import HandsCallStats, timing_stats
 from vision.types import BottleDetection, HandLandmarks, HandsResult, Point2D
 
@@ -581,7 +581,7 @@ def test_generic_custom_roi_still_recovers_missing_hand():
 
         def _detect_bartender_roi(self, frame, bottle):
             calls["roi"] += 1
-            return HandsResult(hands=[_zone_hand(0.375, 0.32)])
+            return HandsResult(hands=[_hand_as(_zone_hand(0.375, 0.32), "Left")])
 
     result = Stub().detect(_blank(), _bartender_bottle())
     assert result is not None and len(result.hands) == 2
@@ -663,3 +663,123 @@ def test_recovery_diagnostics_reset_between_runs():
     assert snap["bartender_attempts"] == 0
     assert snap["primary_successes"] == 0
     assert snap["primary_failures"] == 0
+
+
+def _hand_as(hand: HandLandmarks, handedness: str) -> HandLandmarks:
+    return HandLandmarks(points=dict(hand.points), handedness=handedness)
+
+
+def test_custom_merge_rejects_same_handedness_duplicate():
+    primary = HandsResult(hands=[_hand_as(_hand(0.2, 0.5), "Left")])
+    recovered = HandsResult(hands=[_hand_as(_hand(0.6, 0.5), "Left")])
+    merged = _merge_hands(
+        primary, recovered, max_num_hands=2, fill_missing_only=True
+    )
+    assert merged is not None
+    assert [h.handedness for h in merged.hands] == ["Left"]
+    assert merged.hands[0] is primary.hands[0]
+
+
+def test_custom_merge_keeps_opposite_hand_both_orders():
+    for have, missing in (("Left", "Right"), ("Right", "Left")):
+        primary = HandsResult(hands=[_hand_as(_hand(0.2, 0.5), have)])
+        recovered = HandsResult(hands=[_hand_as(_hand(0.6, 0.5), missing)])
+        merged = _merge_hands(
+            primary, recovered, max_num_hands=2, fill_missing_only=True
+        )
+        assert merged is not None
+        assert [h.handedness for h in merged.hands] == [have, missing]
+
+
+def test_custom_merge_rejects_spatial_duplicate_with_unknown_handedness():
+    primary = HandsResult(hands=[_hand_as(_hand(0.40, 0.50), "Unknown")])
+    recovered = HandsResult(
+        hands=[
+            _hand_as(_hand(0.41, 0.51), "Right"),
+            _hand_as(_hand(0.80, 0.50), "Unknown"),
+        ]
+    )
+    merged = _merge_hands(
+        primary, recovered, max_num_hands=2, fill_missing_only=True
+    )
+    assert merged is not None
+    assert len(merged.hands) == 2
+    assert merged.hands[0] is primary.hands[0]
+    assert merged.hands[1] is recovered.hands[1]
+
+
+def test_official_merge_keeps_recovered_first_replacement():
+    primary = HandsResult(hands=[_hand_as(_hand(0.9, 0.9), "Right")])
+    recovered = HandsResult(hands=[_hand_as(_hand(0.3, 0.3), "Right")])
+    merged = _merge_hands(primary, recovered, max_num_hands=1)
+    assert merged is not None and merged.hands == recovered.hands
+
+
+def _custom_stub(calls, roi_hands):
+    class Stub(HandsDetector):
+        def __init__(self):
+            self._rotated_fallback = False
+            self._bartender_roi_fallback = True
+            self._roi_only_when_below_capacity = True
+            self._roi_skip_next = False
+            self._max_num_hands = 2
+
+        def _detect_primary(self, frame):
+            return HandsResult(hands=[_hand_as(_hand(0.9, 0.9), "Right")])
+
+        def _detect_bartender_roi(self, frame, bottle):
+            calls["roi"] += 1
+            return roi_hands()
+
+    return Stub()
+
+
+def test_custom_duplicate_roi_is_gated_and_retried_after_cooldown():
+    calls = {"roi": 0}
+    detector = _custom_stub(
+        calls, lambda: HandsResult(hands=[_zone_hand(0.375, 0.32)])
+    )
+    results = [
+        detector.detect(_blank(), _bartender_bottle()) for _ in range(6)
+    ]
+    # Duplicate Right never takes the second slot; ROI runs every other frame.
+    assert all(r is not None and len(r.hands) == 1 for r in results)
+    assert calls["roi"] == 3
+    assert detector.stats.snapshot()["roi_cooldown_skips"] == 3
+
+
+def test_custom_successful_roi_is_not_gated():
+    calls = {"roi": 0}
+    detector = _custom_stub(
+        calls,
+        lambda: HandsResult(hands=[_hand_as(_zone_hand(0.375, 0.32), "Left")]),
+    )
+    for _ in range(3):
+        result = detector.detect(_blank(), _bartender_bottle())
+        assert result is not None
+        assert [h.handedness for h in result.hands] == ["Right", "Left"]
+    assert calls["roi"] == 3
+
+
+def test_official_roi_fallback_remains_immediate_after_failures():
+    calls = {"roi": 0}
+
+    class Stub(HandsDetector):
+        def __init__(self):
+            self._rotated_fallback = False
+            self._bartender_roi_fallback = True
+            self._roi_only_when_below_capacity = False
+            self._max_num_hands = 1
+
+        def _detect_primary(self, frame):
+            return None
+
+        def _detect_bartender_roi(self, frame, bottle):
+            calls["roi"] += 1
+            return None
+
+    detector = Stub()
+    for _ in range(4):
+        detector.detect(_blank(), _bartender_bottle())
+    assert calls["roi"] == 4
+    assert detector.stats.snapshot()["roi_cooldown_skips"] == 0

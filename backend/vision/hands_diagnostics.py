@@ -55,6 +55,10 @@ class HandsCallStats:
     bartender_attempts: int = 0
     bartender_successes: int = 0
     bartender_failures: int = 0
+    roi_cooldown_skips: int = 0
+
+    def record_roi_cooldown_skip(self) -> None:
+        self.roi_cooldown_skips += 1
 
     def record_primary(self, seconds: float) -> None:
         self.primary_video_samples_s.append(max(0.0, seconds))
@@ -170,6 +174,7 @@ class HandsCallStats:
             "bartender_attempts": self.bartender_attempts,
             "bartender_successes": self.bartender_successes,
             "bartender_failures": self.bartender_failures,
+            "roi_cooldown_skips": self.roi_cooldown_skips,
             "rotated_extra_latency_ms": self._extra_latency_ms(
                 self.rotated_fallback_samples_s
             ),
@@ -225,3 +230,4 @@ class HandsCallStats:
         self.bartender_attempts = 0
         self.bartender_successes = 0
         self.bartender_failures = 0
+        self.roi_cooldown_skips = 0
