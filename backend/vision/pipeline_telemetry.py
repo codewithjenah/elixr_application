@@ -241,6 +241,16 @@ class PipelineTimings:
         self._presentation_expired_frames = 0
         self._parallel_inference_frames = 0
         self._sequential_inference_frames = 0
+        self._counters: dict[str, int] = {}
+
+    def add_counter(self, name: str) -> None:
+        """Count an event for the current interval (reset with the timings)."""
+        with self._lock:
+            self._counters[name] = self._counters.get(name, 0) + 1
+
+    def counter(self, name: str) -> int:
+        with self._lock:
+            return self._counters.get(name, 0)
 
     def add(self, stage: str, seconds: float) -> None:
         with self._lock:
@@ -370,6 +380,7 @@ class PipelineTimings:
             self._presentation_expired_frames = 0
             self._parallel_inference_frames = 0
             self._sequential_inference_frames = 0
+            self._counters.clear()
 
     def count(self, stage: str) -> int:
         with self._lock:
@@ -613,6 +624,13 @@ def format_perf_line(
         for stage in ("yolo", "hands", "pose", "orientation", "custom_completion", "processing_total")
         if inference.count(stage) > 0
     )
+    if inference.count("custom_completion") > 0:
+        ai_percentiles += (
+            " completion_pending_overwrites="
+            f"{inference.counter('completion_pending_overwrites')}"
+            " completion_stale_rejects="
+            f"{inference.counter('completion_stale_rejects')}"
+        )
     inference_concurrency = inference.inference_concurrency_summary()
     join_mean_ms = inference.average_ms("inference_join")
     join_p95_ms = inference.percentile_ms("inference_join", 95)

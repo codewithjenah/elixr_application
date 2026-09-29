@@ -607,6 +607,140 @@ class _CustomReferenceDraft:
         return tuple(replace(sample, timestamp_ms=sample.timestamp_ms - origin) for sample in selected)
 
 
+# Upper bound stop_custom_capture waits for an in-flight live evaluation.
+_CUSTOM_COMPLETION_STOP_DRAIN_S = 1.0
+
+
+@dataclass(frozen=True)
+class _CustomCompletionJob:
+    """Immutable live-completion snapshot evaluated off the AI tick.
+
+    ``recent``/``full`` are tuples copied from the append-only live recording,
+    so ``sample_count`` marks a prefix of it. The frame fields belong to the
+    frame that produced the last sample and are the only valid completion
+    evidence for this job.
+    """
+
+    generation: int
+    recent: tuple[CustomFrameSample, ...]
+    full: tuple[CustomFrameSample, ...] | None
+    sample_count: int
+    need_progress_estimate: bool
+    frame: Any = None
+    normalized: Any = None
+    hands: Any = None
+    pose: Any = None
+
+
+@dataclass(frozen=True)
+class _CustomCompletionResult:
+    job: _CustomCompletionJob
+    progress: str
+    attempt_start_ms: int | None
+    movement_start_index: int | None
+    progress_estimate: float | None
+
+
+class _LatestCompletionWorker:
+    """Single-in-flight, latest-state-only Custom completion evaluator.
+
+    At most one evaluation runs and at most one newer job waits; a job
+    submitted while another waits replaces it (no FIFO backlog). Results are
+    only stored for the current generation and are applied by the AI tick,
+    so session state is never mutated from this worker thread.
+    """
+
+    def __init__(
+        self,
+        evaluate: Callable[[_CustomCompletionJob], _CustomCompletionResult],
+        *,
+        timings: Any = None,
+    ) -> None:
+        self._evaluate = evaluate
+        self._timings = timings
+        self._cond = threading.Condition()
+        self._executor: ThreadPoolExecutor | None = None
+        self._shutdown = False
+        self.generation = 0
+        self._running = False
+        self._pending: _CustomCompletionJob | None = None
+        self._result: _CustomCompletionResult | None = None
+
+    def _count(self, name: str) -> None:
+        if self._timings is not None:
+            self._timings.add_counter(name)
+
+    @property
+    def busy(self) -> bool:
+        with self._cond:
+            return self._running or self._pending is not None
+
+    def submit(self, job: _CustomCompletionJob) -> None:
+        with self._cond:
+            if self._shutdown or job.generation != self.generation:
+                return
+            if self._running:
+                if self._pending is not None:
+                    self._count("completion_pending_overwrites")
+                self._pending = job
+                return
+            if self._executor is None:
+                self._executor = ThreadPoolExecutor(
+                    max_workers=1, thread_name_prefix="elixr-custom-completion",
+                )
+            self._running = True
+            self._executor.submit(self._run, job)
+
+    def _run(self, job: _CustomCompletionJob) -> None:
+        while True:
+            try:
+                result = self._evaluate(job)
+            except Exception:
+                logger.exception("Custom completion evaluation failed")
+                result = None
+            with self._cond:
+                if result is not None:
+                    if job.generation == self.generation:
+                        self._result = result
+                    else:
+                        self._count("completion_stale_rejects")
+                job = self._pending
+                self._pending = None
+                if job is None or self._shutdown:
+                    self._running = False
+                    self._cond.notify_all()
+                    return
+
+    def take_result(self) -> _CustomCompletionResult | None:
+        with self._cond:
+            result, self._result = self._result, None
+            return result
+
+    def invalidate(self) -> int:
+        with self._cond:
+            self.generation += 1
+            self._pending = None
+            self._result = None
+            return self.generation
+
+    def drain(self, timeout: float) -> bool:
+        """Wait (bounded) until nothing runs or waits; True when idle."""
+        with self._cond:
+            return self._cond.wait_for(
+                lambda: not self._running and self._pending is None, timeout,
+            )
+
+    def shutdown(self) -> None:
+        with self._cond:
+            self._shutdown = True
+            self.generation += 1
+            self._pending = None
+            self._result = None
+            executor, self._executor = self._executor, None
+        if executor is not None:
+            executor.shutdown(wait=False, cancel_futures=True)
+
+
 class VisionSession:
     def __init__(
         self,
@@ -919,6 +1053,9 @@ class VisionSession:
         # Motion onsets of separate attempts in this recording (bounded), so a
         # timed-out run is graded on its best attempt, not its first one.
         self._custom_assessment_attempt_starts: list[int] = []
+        self._custom_completion_worker = _LatestCompletionWorker(
+            self._evaluate_custom_completion_job, timings=self.timings,
+        )
         self._custom_event_tracker = PropEventTracker()
         self._custom_assessment_cue: str | None = None
         self._custom_assessment_cue_sequence = 0
@@ -1131,6 +1268,7 @@ class VisionSession:
             self._custom_samples = []
             self._custom_sample_capture_times = []
             if self._is_custom_assessment:
+                self._custom_completion_worker.invalidate()
                 self._custom_assessment_progress = CUSTOM_ASSESSMENT_WAITING
                 self._custom_assessment_last_evaluated_at = None
                 self._custom_assessment_movement_start_index = None
@@ -1155,6 +1293,12 @@ class VisionSession:
     def stop_custom_capture(self) -> tuple[bool, str | None, dict[str, Any]]:
         self._acquire_ai_state(blocking=True)
         try:
+            if self._is_custom_assessment and self._custom_samples is not None:
+                # Bounded wait so a completion found on the final evaluated
+                # sample is not lost; afterwards no late result may apply.
+                self._custom_completion_worker.drain(_CUSTOM_COMPLETION_STOP_DRAIN_S)
+                self._apply_custom_completion_result()
+            self._custom_completion_worker.invalidate()
             samples = tuple(self._custom_samples or ())
             if (self._is_custom_assessment and self._custom_template is not None
                     and self._custom_template.movement_behavior == "static"
@@ -1408,6 +1552,7 @@ class VisionSession:
         try:
             if not self._is_custom_assessment or self._custom_template is None:
                 raise ValueError("invalid_session_purpose")
+            self._custom_completion_worker.invalidate()
             captured_samples = tuple(self._custom_samples or ())
             if not captured_samples:
                 raise ValueError("custom_capture_not_recording")
@@ -1726,50 +1871,109 @@ class VisionSession:
             )
         ):
             self._custom_assessment_last_evaluated_at = time.monotonic()
-            evaluation_started = time.perf_counter()
-            recent = tuple(custom_live_completion_window(self._custom_template, samples))
-            progress, attempt_start_ms = evaluate_custom_assessment_segment(
-                self._custom_template, recent
+            # Completion (DTW with attempt restarts) runs on the dedicated
+            # latest-state worker so this AI tick publishes without waiting.
+            dynamic = self._custom_template.movement_behavior != "static"
+            self._custom_completion_worker.submit(_CustomCompletionJob(
+                generation=self._custom_completion_worker.generation,
+                recent=tuple(custom_live_completion_window(self._custom_template, samples)),
+                full=(
+                    tuple(samples)
+                    if dynamic and self._custom_assessment_movement_start_index is None
+                    else None
+                ),
+                sample_count=len(samples),
+                need_progress_estimate=(
+                    dynamic
+                    and not self._custom_template.feature_capabilities.get("release_catch")
+                ),
+                frame=frame, normalized=normalized, hands=hands, pose=pose,
+            ))
+
+    def _evaluate_custom_completion_job(
+        self, job: _CustomCompletionJob,
+    ) -> _CustomCompletionResult:
+        """Worker-thread evaluation; reads only the immutable job snapshot."""
+        template = self._custom_template
+        if template is None:
+            raise ValueError("missing_custom_movement_template")
+        evaluation_started = time.perf_counter()
+        progress, attempt_start_ms = evaluate_custom_assessment_segment(template, job.recent)
+        start_index = None
+        if job.full is not None and progress != CUSTOM_ASSESSMENT_WAITING:
+            start_index = find_custom_assessment_start_index(template, job.full)
+        estimate = (
+            estimate_custom_sequence_progress(template, job.recent)
+            if job.need_progress_estimate and progress == CUSTOM_ASSESSMENT_MOVING
+            else None
+        )
+        self.timings.add("custom_completion", time.perf_counter() - evaluation_started)
+        return _CustomCompletionResult(
+            job=job, progress=progress, attempt_start_ms=attempt_start_ms,
+            movement_start_index=start_index, progress_estimate=estimate,
+        )
+
+    def _apply_custom_completion_result(self) -> _CustomCompletionJob | None:
+        """Apply the newest worker result for the current recording.
+
+        Runs under the AI state lock. Returns the job when it newly completes
+        the attempt so its own frame can become completion evidence.
+        """
+        result = self._custom_completion_worker.take_result()
+        if result is None:
+            return None
+        samples = self._custom_samples
+        template = self._custom_template
+        if (
+            result.job.generation != self._custom_completion_worker.generation
+            or samples is None or template is None
+            or len(samples) < result.job.sample_count
+        ):
+            self.timings.add_counter("completion_stale_rejects")
+            return None
+        if self._custom_assessment_progress == CUSTOM_ASSESSMENT_COMPLETED:
+            return None
+        progress = result.progress
+        attempt_start_ms = result.attempt_start_ms
+        if progress == CUSTOM_ASSESSMENT_COMPLETED:
+            # The recording ends at the completion-confirming sample, exactly
+            # as when completion was evaluated inline on that sample's tick.
+            del samples[result.job.sample_count:]
+            del self._custom_sample_capture_times[result.job.sample_count:]
+        if (
+            result.movement_start_index is not None
+            and self._custom_assessment_movement_start_index is None
+        ):
+            self._custom_assessment_movement_start_index = result.movement_start_index
+        if attempt_start_ms is not None:
+            self._note_custom_attempt_start(
+                samples, start_ms=attempt_start_ms,
+                completed=progress == CUSTOM_ASSESSMENT_COMPLETED,
             )
-            self.timings.add("custom_completion", time.perf_counter() - evaluation_started)
-            if (
-                self._custom_template.movement_behavior != "static"
-                and progress != CUSTOM_ASSESSMENT_WAITING
-                and self._custom_assessment_movement_start_index is None
-            ):
-                self._custom_assessment_movement_start_index = (
-                    find_custom_assessment_start_index(
-                        self._custom_template, tuple(samples)
-                    )
+        previous = self._custom_assessment_progress
+        if progress == CUSTOM_ASSESSMENT_COMPLETED:
+            self._custom_assessment_progress = progress
+            self._set_custom_assessment_cue("completed")
+        elif template.movement_behavior == "static":
+            self._custom_assessment_progress = progress
+            if progress == "position_detected":
+                self._set_custom_assessment_cue(
+                    "position_detected" if previous != progress else "hold_steady"
                 )
-            if attempt_start_ms is not None:
-                self._note_custom_attempt_start(
-                    samples, start_ms=attempt_start_ms,
-                    completed=progress == CUSTOM_ASSESSMENT_COMPLETED,
-                )
-            previous = self._custom_assessment_progress
-            if progress == CUSTOM_ASSESSMENT_COMPLETED:
-                self._custom_assessment_progress = progress
-                self._set_custom_assessment_cue("completed")
-            elif self._custom_template.movement_behavior == "static":
-                self._custom_assessment_progress = progress
-                if progress == "position_detected":
-                    self._set_custom_assessment_cue(
-                        "position_detected" if previous != progress else "hold_steady"
-                    )
-            elif (
-                progress == CUSTOM_ASSESSMENT_MOVING
-                and self._custom_assessment_progress == CUSTOM_ASSESSMENT_WAITING
-            ):
-                self._custom_assessment_progress = progress
-                self._set_custom_assessment_cue("movement_detected")
-            elif (progress == CUSTOM_ASSESSMENT_MOVING
-                  and not self._custom_template.feature_capabilities.get("release_catch")
-                  and self._custom_assessment_progress == CUSTOM_ASSESSMENT_MOVING):
-                if estimate_custom_sequence_progress(self._custom_template, recent) >= 0.70:
-                    self._set_custom_assessment_cue("finish_sequence")
-                elif self._custom_assessment_cue == "movement_detected":
-                    self._set_custom_assessment_cue("keep_going")
+        elif (
+            progress == CUSTOM_ASSESSMENT_MOVING
+            and self._custom_assessment_progress == CUSTOM_ASSESSMENT_WAITING
+        ):
+            self._custom_assessment_progress = progress
+            self._set_custom_assessment_cue("movement_detected")
+        elif (progress == CUSTOM_ASSESSMENT_MOVING
+              and not template.feature_capabilities.get("release_catch")
+              and self._custom_assessment_progress == CUSTOM_ASSESSMENT_MOVING):
+            if (result.progress_estimate or 0.0) >= 0.70:
+                self._set_custom_assessment_cue("finish_sequence")
+            elif self._custom_assessment_cue == "movement_detected":
+                self._set_custom_assessment_cue("keep_going")
+        return result.job if progress == CUSTOM_ASSESSMENT_COMPLETED else None
 
     def _custom_completion_evidence_b64(
         self, *, frame, normalized, hands, pose, feedback: str,
@@ -3588,8 +3792,13 @@ class VisionSession:
                     bottles=list(normalized.bottles), shakers=list(normalized.shakers),
                     hands=hands, pose=pose,
                 ))
+            completed_job = (
+                self._apply_custom_completion_result()
+                if self._is_custom_assessment else None
+            )
             completed_before_frame = (
-                self._custom_assessment_progress == CUSTOM_ASSESSMENT_COMPLETED
+                completed_job is None
+                and self._custom_assessment_progress == CUSTOM_ASSESSMENT_COMPLETED
             )
             if not self._is_custom_capture or self._custom_samples is None or (
                 self._custom_person_count == 1
@@ -3651,10 +3860,14 @@ class VisionSession:
                 and not completed_before_frame
                 and self._custom_assessment_progress == CUSTOM_ASSESSMENT_COMPLETED
             ):
-                # Completion changes state only inside this frame's sample
-                # evaluation, so this is the completion-confirming frame.
+                # Evidence is the frame whose sample confirmed completion: the
+                # completed worker job carries it, never a later live frame.
+                source = completed_job
                 evidence_b64 = self._custom_completion_evidence_b64(
-                    frame=frame, normalized=normalized, hands=hands, pose=pose,
+                    frame=source.frame if source is not None else frame,
+                    normalized=source.normalized if source is not None else normalized,
+                    hands=source.hands if source is not None else hands,
+                    pose=source.pose if source is not None else pose,
                     feedback=feedback,
                 )
             message = self._stamp(
@@ -4083,6 +4296,7 @@ class VisionSession:
             self._custom_target_prop = None
             self._custom_samples = None
             self._custom_sample_capture_times = []
+            self._custom_completion_worker.shutdown()
             if self._recognizer is not None:
                 self._recognizer.clear_target()
             self._calibration.reset()
